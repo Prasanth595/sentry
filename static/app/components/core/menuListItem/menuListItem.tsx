@@ -7,12 +7,12 @@ import styled from '@emotion/styled';
 import {mergeRefs} from '@react-aria/utils';
 
 import {Container} from '@sentry/scraps/layout';
+import {Overlay, PositionWrapper} from '@sentry/scraps/overlay';
 import type {FormSize, Theme} from '@sentry/scraps/theme';
 import type {TooltipProps} from '@sentry/scraps/tooltip';
 import {Tooltip} from '@sentry/scraps/tooltip';
 
 import InteractionStateLayer from 'sentry/components/interactionStateLayer';
-import {Overlay, PositionWrapper} from 'sentry/components/overlay';
 
 /**
  * Menu item priority. Determines the text and background color.
