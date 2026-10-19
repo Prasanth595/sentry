@@ -51,7 +51,7 @@ class SeerWorkflowConfig(DefaultFieldsModel):
     project-repository associations.
     """
 
-    __relocation_scope__ = RelocationScope.Excluded
+    __relocation_scope__ = RelocationScope.Organization
 
     organization = FlexibleForeignKey("sentry.Organization", on_delete=models.CASCADE)
     strategy = models.CharField(max_length=256, choices=SeerWorkflowStrategy.choices)
@@ -100,7 +100,7 @@ class SeerWorkflowConfig(DefaultFieldsModel):
 class SeerWorkflowConfigProject(DefaultFieldsModel):
     """One selected project of a config whose filters do not select all projects."""
 
-    __relocation_scope__ = RelocationScope.Excluded
+    __relocation_scope__ = RelocationScope.Organization
 
     config = FlexibleForeignKey("seer.SeerWorkflowConfig", on_delete=models.CASCADE)
     project = FlexibleForeignKey("sentry.Project", on_delete=models.CASCADE)
