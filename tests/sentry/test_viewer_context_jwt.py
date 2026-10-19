@@ -15,8 +15,10 @@ from sentry.testutils.outbox import outbox_runner
 from sentry.testutils.silo import assume_test_silo_mode
 from sentry.types.superuser import SuperuserAccess
 from sentry.viewer_context import (
+    Actor,
     ActorType,
     ViewerContext,
+    ViewerContextV2,
     decode_viewer_context,
     encode_viewer_context,
     is_jwt_viewer_context,
@@ -76,6 +78,7 @@ class TestEncodeDecodeRoundtrip(TestCase):
         vc = ViewerContext(organization_id=42, user_id=7, actor_type=ActorType.USER)
         token = encode_viewer_context(vc)
         result = decode_viewer_context(token)
+        assert isinstance(result, ViewerContext)
 
         assert result.organization_id == 42
         assert result.user_id == 7
@@ -87,6 +90,7 @@ class TestEncodeDecodeRoundtrip(TestCase):
         vc = ViewerContext(actor_type=ActorType.SYSTEM)
         token = encode_viewer_context(vc)
         result = decode_viewer_context(token)
+        assert isinstance(result, ViewerContext)
 
         assert result.organization_id is None
         assert result.user_id is None
@@ -97,6 +101,7 @@ class TestEncodeDecodeRoundtrip(TestCase):
         vc = ViewerContext(organization_id=99, actor_type=ActorType.INTEGRATION)
         token = encode_viewer_context(vc)
         result = decode_viewer_context(token)
+        assert isinstance(result, ViewerContext)
 
         assert result.organization_id == 99
         assert result.actor_type == ActorType.INTEGRATION
@@ -164,6 +169,7 @@ class TestEncodeViewerContext(TestCase):
         jwt_token = encode_viewer_context(vc)
 
         result = decode_viewer_context(jwt_token)
+        assert isinstance(result, ViewerContext)
         assert result.token is None
 
         claims = pyjwt.decode(jwt_token, options={"verify_signature": False})
@@ -231,3 +237,39 @@ class TestIsJwtViewerContext(TestCase):
 
     def test_empty_string(self):
         assert is_jwt_viewer_context("") is False
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "actor",
+    [
+        Actor(type=ActorType.USER, id=7),
+        Actor(type=ActorType.SERVICE_ACCOUNT, id=7),
+        Actor(type=ActorType.AGENT, id=90, delegated_user_id=7),
+    ],
+)
+def test_v2_jwt_preserves_actor_and_version(actor):
+    context = ViewerContextV2(actor=actor, organization_id=42, project_id=99)
+    token = encode_viewer_context(context, key="test-secret-key")
+    assert decode_viewer_context(token, key="test-secret-key") == context
+    claims = pyjwt.decode(token, options={"verify_signature": False})
+    assert claims["version"] == 2
+    assert claims["actor"] == actor.serialize()
+    assert not {"user_id", "actor_type", "superuser", "token"}.intersection(claims)
+
+
+@pytest.mark.django_db
+def test_v2_jwt_preserves_actor_elevation_deadline():
+    deadline = int(time.time()) + 120
+    context = ViewerContextV2(
+        actor=Actor(type=ActorType.USER, id=7, superuser=SuperuserAccess(expires_at=deadline)),
+        organization_id=42,
+    )
+    token = encode_viewer_context(context, key="test-secret-key")
+    restored = decode_viewer_context(token, key="test-secret-key")
+    assert restored == context
+    claims = pyjwt.decode(
+        encode_viewer_context(restored, key="test-secret-key"), options={"verify_signature": False}
+    )
+    assert claims["exp"] == deadline
+    assert claims["actor"]["superuser"] == {"expires_at": deadline}

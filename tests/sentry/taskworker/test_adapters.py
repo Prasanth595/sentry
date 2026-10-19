@@ -13,7 +13,14 @@ from sentry.taskworker.adapters import (
     ViewerContextHook,
     make_producer,
 )
-from sentry.viewer_context import ActorType, ViewerContext, get_viewer_context, viewer_context_scope
+from sentry.viewer_context import (
+    Actor,
+    ActorType,
+    ViewerContext,
+    ViewerContextV2,
+    get_viewer_context,
+    viewer_context_scope,
+)
 
 
 @pytest.mark.django_db
@@ -126,7 +133,7 @@ class TestViewerContextHook:
         }
         with hook.on_execute(headers):
             ctx = get_viewer_context()
-            assert ctx is not None
+            assert isinstance(ctx, ViewerContext)
             assert ctx.organization_id == 42
             assert ctx.user_id == 7
             assert ctx.actor_type == ActorType.USER
@@ -147,7 +154,7 @@ class TestViewerContextHook:
         }
         with hook.on_execute(headers):
             ctx = get_viewer_context()
-            assert ctx is not None
+            assert isinstance(ctx, ViewerContext)
             assert ctx.organization_id == 99
             assert ctx.user_id is None
             assert ctx.actor_type == ActorType.INTEGRATION
@@ -163,7 +170,7 @@ class TestViewerContextHook:
 
         with hook.on_execute(headers):
             restored = get_viewer_context()
-            assert restored is not None
+            assert isinstance(restored, ViewerContext)
             assert restored.organization_id == original.organization_id
             assert restored.user_id == original.user_id
             assert restored.actor_type == original.actor_type
@@ -179,3 +186,36 @@ class TestViewerContextHook:
         headers = {"sentry-viewer-context": "[1, 2, 3]"}
         cm = hook.on_execute(headers)
         assert isinstance(cm, contextlib.nullcontext)
+
+
+@pytest.mark.parametrize(
+    "actor",
+    [
+        Actor(type=ActorType.SERVICE_ACCOUNT, id=7),
+        Actor(type=ActorType.AGENT, id=90, delegated_user_id=7),
+    ],
+)
+def test_v2_task_context_survives_redispatch(actor):
+    original = ViewerContextV2(actor=actor, organization_id=42)
+    hook = ViewerContextHook()
+    headers: dict[str, str] = {}
+    with viewer_context_scope(original):
+        hook.on_dispatch(headers)
+    with hook.on_execute(headers):
+        assert get_viewer_context() == original
+        child_headers: dict[str, str] = {}
+        hook.on_dispatch(child_headers)
+    assert child_headers == headers
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"version": 3},
+        {"version": 2, "organization_id": 42, "actor": {"type": "user"}},
+    ],
+)
+def test_invalid_actor_header_is_rejected_without_failing_task(payload):
+    hook = ViewerContextHook()
+    with hook.on_execute({hook.HEADER: orjson.dumps(payload).decode()}):
+        assert get_viewer_context() is None

@@ -19,6 +19,8 @@ from sentry.hybridcloud.rpc.sig import SerializableFunctionValueException
 from sentry.utils.env import in_test_environment
 from sentry.viewer_context import (
     ViewerContext,
+    ViewerContextV2,
+    deserialize_viewer_context,
     observe_viewer_context_propagation,
     viewer_context_scope,
 )
@@ -69,10 +71,10 @@ class InternalRpcServiceEndpoint(Endpoint):
 
         meta = request.data.get("meta") or {}
         vc_data = meta.get("viewer_context")
-        vc = ViewerContext()
+        vc: ViewerContext | ViewerContextV2 = ViewerContext()
         if vc_data:
             try:
-                vc = ViewerContext.deserialize(vc_data)
+                vc = deserialize_viewer_context(vc_data)
             except Exception as e:
                 sentry_sdk.capture_exception()
                 raise ParseError from e

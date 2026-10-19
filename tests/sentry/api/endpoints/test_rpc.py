@@ -11,7 +11,13 @@ from rest_framework.exceptions import ErrorDetail
 from sentry.hybridcloud.rpc.service import generate_request_signature
 from sentry.organizations.services.organization import RpcUserOrganizationContext
 from sentry.testutils.cases import APITestCase
-from sentry.viewer_context import ActorType, ViewerContext, get_viewer_context
+from sentry.viewer_context import (
+    Actor,
+    ActorType,
+    ViewerContext,
+    ViewerContextV2,
+    get_viewer_context,
+)
 
 
 @override_settings(RPC_SHARED_SECRET=["a-long-value-that-is-hard-to-guess"])
@@ -164,7 +170,7 @@ class RpcServiceEndpointTest(APITestCase):
     def test_viewer_context_propagated_from_meta(self) -> None:
         """ViewerContext in meta is set as the contextvar during dispatch."""
         organization = self.create_organization()
-        captured_contexts: list[ViewerContext | None] = []
+        captured_contexts: list[ViewerContext | ViewerContextV2 | None] = []
 
         original_dispatch = __import__(
             "sentry.hybridcloud.rpc.service", fromlist=["dispatch_to_local_service"]
@@ -195,7 +201,7 @@ class RpcServiceEndpointTest(APITestCase):
         assert response.status_code == 200
         assert len(captured_contexts) == 1
         ctx = captured_contexts[0]
-        assert ctx is not None
+        assert isinstance(ctx, ViewerContext)
         assert ctx.organization_id == organization.id
         assert ctx.user_id == 42
         assert ctx.actor_type == ActorType.USER
@@ -203,7 +209,7 @@ class RpcServiceEndpointTest(APITestCase):
     def test_viewer_context_unknown_when_meta_empty(self) -> None:
         """Empty ViewerContext with UNKNOWN actor type when meta has no viewer_context."""
         organization = self.create_organization()
-        captured_contexts: list[ViewerContext | None] = []
+        captured_contexts: list[ViewerContext | ViewerContextV2 | None] = []
 
         original_dispatch = __import__(
             "sentry.hybridcloud.rpc.service", fromlist=["dispatch_to_local_service"]
@@ -225,7 +231,7 @@ class RpcServiceEndpointTest(APITestCase):
         assert response.status_code == 200
         assert len(captured_contexts) == 1
         ctx = captured_contexts[0]
-        assert ctx is not None
+        assert isinstance(ctx, ViewerContext)
         assert ctx.user_id is None
         assert ctx.organization_id is None
         assert ctx.actor_type == ActorType.UNKNOWN
@@ -233,7 +239,7 @@ class RpcServiceEndpointTest(APITestCase):
     def test_agent_viewer_context_roundtrip_through_meta(self) -> None:
         """Agent ViewerContext set on the sending side arrives on the receiving side."""
         organization = self.create_organization()
-        captured_contexts: list[ViewerContext | None] = []
+        captured_contexts: list[ViewerContext | ViewerContextV2 | None] = []
 
         original_dispatch = __import__(
             "sentry.hybridcloud.rpc.service", fromlist=["dispatch_to_local_service"]
@@ -260,7 +266,39 @@ class RpcServiceEndpointTest(APITestCase):
         assert response.status_code == 200
         assert len(captured_contexts) == 1
         restored = captured_contexts[0]
-        assert restored is not None
+        assert isinstance(restored, ViewerContext)
         assert restored.organization_id == ctx.organization_id
         assert restored.user_id == ctx.user_id
         assert restored.actor_type == ctx.actor_type
+
+    def test_v2_service_account_context_propagated_from_meta(self) -> None:
+        self._assert_v2_context_propagated(Actor(type=ActorType.SERVICE_ACCOUNT, id=7))
+
+    def test_v2_agent_context_propagated_from_meta(self) -> None:
+        self._assert_v2_context_propagated(Actor(type=ActorType.AGENT, id=90, delegated_user_id=7))
+
+    def test_v2_user_context_propagated_from_meta(self) -> None:
+        self._assert_v2_context_propagated(Actor(type=ActorType.USER, id=7))
+
+    def _assert_v2_context_propagated(self, actor: Actor) -> None:
+        context = ViewerContextV2(actor=actor, organization_id=self.organization.id)
+        path = self._get_path("organization", "get_organization_by_id")
+        captured = []
+
+        def capturing_dispatch(*args, **kwargs):
+            captured.append(get_viewer_context())
+            return {}
+
+        with patch(
+            "sentry.api.endpoints.internal.rpc.dispatch_to_local_service",
+            side_effect=capturing_dispatch,
+        ):
+            response = self._send_post_request(
+                path,
+                {
+                    "args": {"id": self.organization.id},
+                    "meta": {"viewer_context": context.serialize()},
+                },
+            )
+        assert response.status_code == 200
+        assert captured == [context]

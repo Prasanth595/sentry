@@ -13,7 +13,9 @@ from urllib3 import BaseHTTPResponse, HTTPConnectionPool, Retry
 from sentry.net.http import connection_from_url
 from sentry.utils import metrics
 from sentry.viewer_context import (
+    ActorType,
     ViewerContext,
+    ViewerContextV2,
     encode_viewer_context,
     get_viewer_context,
     observe_viewer_context_propagation,
@@ -57,7 +59,7 @@ seer_grouping_default_connection_pool = connection_from_url(
 def _resolve_viewer_context(
     explicit: SeerViewerContext | None = None,
     endpoint: str | None = None,
-) -> ViewerContext | None:
+) -> ViewerContext | ViewerContextV2 | None:
     """Merge explicit SeerViewerContext with the contextvar.
 
     Converts the legacy SeerViewerContext into a ViewerContext, then merges
@@ -70,6 +72,18 @@ def _resolve_viewer_context(
         return None
     if explicit is None:
         return vc
+
+    if isinstance(vc, ViewerContextV2):
+        actor = vc.actor
+        human_id = actor.id if actor.type == ActorType.USER else actor.delegated_user_id
+        if explicit.get("user_id") not in (None, human_id):
+            raise ValueError("Cannot override a V2 actor with a legacy user ID")
+        explicit_org = explicit.get("organization_id")
+        if vc.organization_id is not None and explicit_org not in (None, vc.organization_id):
+            raise ValueError("Cannot override a V2 viewer's organization")
+        return replace(
+            vc, organization_id=explicit_org if explicit_org is not None else vc.organization_id
+        )
 
     explicit_vc = ViewerContext(
         organization_id=explicit.get("organization_id"),

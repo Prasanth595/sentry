@@ -45,7 +45,13 @@ from sentry.testutils.silo import assume_test_silo_mode, control_silo_test, no_s
 from sentry.types.token import AuthTokenType
 from sentry.utils import jwt
 from sentry.utils.security.orgauthtoken_token import hash_token
-from sentry.viewer_context import ActorType, ViewerContext, encode_viewer_context
+from sentry.viewer_context import (
+    Actor,
+    ActorType,
+    ViewerContext,
+    ViewerContextV2,
+    encode_viewer_context,
+)
 
 
 def _drf_request(data: dict[str, str] | None = None, path: str = "/example") -> Request:
@@ -1186,3 +1192,28 @@ class TestViewerContextAuthentication(TestCase):
         result = ViewerContextAuthentication().authenticate(request)
 
         assert result is None
+
+    @override_settings(SEER_API_SHARED_SECRET=SHARED_SECRET)
+    def test_service_account_id_is_not_a_user(self) -> None:
+        context = ViewerContextV2(
+            actor=Actor(type=ActorType.SERVICE_ACCOUNT, id=self.user.id),
+            organization_id=self.organization.id,
+        )
+        request = self._make_request(
+            viewer_context=encode_viewer_context(context, key=self.SHARED_SECRET)
+        )
+        assert ViewerContextAuthentication().authenticate(request) is None
+
+    @override_settings(SEER_API_SHARED_SECRET=SHARED_SECRET)
+    def test_agent_authenticates_delegate_not_agent_id(self) -> None:
+        agent_user = self.create_user()
+        context = ViewerContextV2(
+            actor=Actor(type=ActorType.AGENT, id=agent_user.id, delegated_user_id=self.user.id),
+            organization_id=self.organization.id,
+        )
+        request = self._make_request(
+            viewer_context=encode_viewer_context(context, key=self.SHARED_SECRET)
+        )
+        result = ViewerContextAuthentication().authenticate(request)
+        assert result is not None
+        assert result[0].id == self.user.id

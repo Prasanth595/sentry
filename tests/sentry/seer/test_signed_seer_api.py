@@ -13,7 +13,13 @@ from sentry.seer.signed_seer_api import (
     make_signed_seer_api_request,
 )
 from sentry.types.superuser import SuperuserAccess
-from sentry.viewer_context import ActorType, ViewerContext, viewer_context_scope
+from sentry.viewer_context import (
+    Actor,
+    ActorType,
+    ViewerContext,
+    ViewerContextV2,
+    viewer_context_scope,
+)
 
 REQUEST_BODY = b'{"b": 12, "thing": "thing"}'
 PATH = "/v0/some/url"
@@ -225,7 +231,7 @@ class TestResolveViewerContext:
         )
         with viewer_context_scope(ctx):
             result = _resolve_viewer_context(SeerViewerContext(organization_id=43, user_id=7))
-        assert result is not None
+        assert isinstance(result, ViewerContext)
         assert result.superuser is None
 
     def test_both_none(self) -> None:
@@ -236,7 +242,7 @@ class TestResolveViewerContext:
         with viewer_context_scope(ctx):
             result = _resolve_viewer_context(None)
 
-        assert result is not None
+        assert isinstance(result, ViewerContext)
         assert result.organization_id == 42
         assert result.user_id == 7
         assert result.actor_type == ActorType.USER
@@ -249,7 +255,7 @@ class TestResolveViewerContext:
         result = _resolve_viewer_context(
             SeerViewerContext(organization_id=99, user_id=5), endpoint="/v1/automation/summarize"
         )
-        assert result is not None
+        assert isinstance(result, ViewerContext)
         assert result.organization_id == 99
         assert result.user_id == 5
 
@@ -289,7 +295,7 @@ class TestResolveViewerContext:
         with viewer_context_scope(ctx):
             result = _resolve_viewer_context(None)
 
-        assert result is not None
+        assert isinstance(result, ViewerContext)
         assert result.token is not None
         assert result.token.kind == "api_token"
         assert set(result.token.get_scopes()) == {"org:read", "project:write"}
@@ -299,7 +305,7 @@ class TestResolveViewerContext:
         with viewer_context_scope(ctx):
             result = _resolve_viewer_context(SeerViewerContext(organization_id=42, user_id=99))
 
-        assert result is not None
+        assert isinstance(result, ViewerContext)
         assert result.organization_id == 42
         assert result.user_id == 99
         assert result.actor_type == ActorType.USER
@@ -320,7 +326,7 @@ class TestResolveViewerContext:
                 SeerViewerContext(organization_id=999), endpoint="/v1/automation/summarize"
             )
 
-        assert result is not None
+        assert isinstance(result, ViewerContext)
         assert result.organization_id == 999
         assert result.token is None
         mock_logger.warning.assert_called_once()
@@ -343,7 +349,7 @@ class TestResolveViewerContext:
         with viewer_context_scope(ctx):
             result = _resolve_viewer_context(SeerViewerContext(organization_id=42, user_id=7))
 
-        assert result is not None
+        assert isinstance(result, ViewerContext)
         assert result.project_id == 100
         mock_metrics.incr.assert_called_once_with(
             "seer.viewer_context_resolution",
@@ -356,7 +362,7 @@ class TestResolveViewerContext:
         with viewer_context_scope(ctx):
             result = _resolve_viewer_context(SeerViewerContext(organization_id=42, user_id=7))
 
-        assert result is not None
+        assert isinstance(result, ViewerContext)
         assert result.project_id is None
         mock_metrics.incr.assert_called_once_with(
             "seer.viewer_context_resolution",
@@ -373,5 +379,15 @@ class TestResolveViewerContext:
         with viewer_context_scope(ctx):
             result = _resolve_viewer_context(SeerViewerContext(organization_id=42, user_id=7))
 
-        assert result is not None
+        assert isinstance(result, ViewerContext)
         assert result.token is not None
+
+
+def test_v2_seer_override_preserves_actor():
+    context = ViewerContextV2(actor=Actor(type=ActorType.SERVICE_ACCOUNT, id=7), organization_id=42)
+    with viewer_context_scope(context):
+        assert _resolve_viewer_context({"organization_id": 42}) == context
+        with pytest.raises(ValueError):
+            _resolve_viewer_context({"user_id": 7})
+        with pytest.raises(ValueError):
+            _resolve_viewer_context({"organization_id": 43})

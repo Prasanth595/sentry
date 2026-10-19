@@ -10,7 +10,13 @@ from sentry.seer.signed_seer_api import _resolve_viewer_context
 from sentry.testutils.cases import APITestCase
 from sentry.testutils.helpers.datetime import freeze_time
 from sentry.types.superuser import SuperuserAccess
-from sentry.viewer_context import ActorType, ViewerContext, encode_viewer_context
+from sentry.viewer_context import (
+    Actor,
+    ActorType,
+    ViewerContext,
+    ViewerContextV2,
+    encode_viewer_context,
+)
 
 SECRET = "test-seer-api-shared-secret-thirty-two-bytes!"
 
@@ -51,7 +57,7 @@ class SuperuserViewerContextTest(APITestCase):
 
             def capture_context(*_args: Any, **kwargs: Any) -> Any:
                 resolved = _resolve_viewer_context(kwargs["viewer_context"])
-                assert resolved is not None
+                assert isinstance(resolved, ViewerContext)
                 resolved_contexts.append(resolved)
                 return outbound.return_value
 
@@ -119,3 +125,19 @@ class SuperuserViewerContextTest(APITestCase):
             HTTP_X_VIEWER_CONTEXT=self._viewer_header(int(timezone.now().timestamp()) + 360)
         )
         assert client.get(self.path).status_code == 401
+
+    def test_v2_actor_elevation_is_read_only_and_organization_bound(self) -> None:
+        context = ViewerContextV2(
+            actor=Actor(
+                type=ActorType.USER,
+                id=self.employee.id,
+                superuser=SuperuserAccess(expires_at=int(timezone.now().timestamp()) + 120),
+            ),
+            organization_id=self.organization.id,
+        )
+        client = APIClient()
+        client.credentials(HTTP_X_VIEWER_CONTEXT=encode_viewer_context(context, key=SECRET))
+        assert client.get(self.path).status_code == 200
+        assert client.put(self.path, {}, format="json").status_code == 403
+        other = self.create_organization()
+        assert client.get(f"/api/0/organizations/{other.slug}/").status_code == 403

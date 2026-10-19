@@ -9,8 +9,11 @@ import pytest
 
 from sentry.types.superuser import SuperuserAccess
 from sentry.viewer_context import (
+    Actor,
     ActorType,
     ViewerContext,
+    ViewerContextV2,
+    deserialize_viewer_context,
     get_viewer_context,
     observe_viewer_context_propagation,
     set_viewer_context_organization,
@@ -53,7 +56,7 @@ class TestViewerContext:
             assert get_viewer_context() == ctx
             set_viewer_context_organization(11)
             changed = get_viewer_context()
-            assert changed is not None
+            assert isinstance(changed, ViewerContext)
             assert changed.superuser is None
 
     def test_defaults(self):
@@ -118,7 +121,7 @@ class TestViewerContextScope:
 
     def test_copy_context_propagates_to_thread(self):
         ctx = ViewerContext(user_id=1, organization_id=10)
-        result: list[ViewerContext | None] = [None]
+        result: list[ViewerContext | ViewerContextV2 | None] = [None]
 
         with viewer_context_scope(ctx):
             copied = contextvars.copy_context()
@@ -166,7 +169,7 @@ class TestViewerContextScope:
             set_viewer_context_organization(42)
             updated = get_viewer_context()
 
-            assert updated is not None
+            assert isinstance(updated, ViewerContext)
             assert updated.organization_id == 42
             assert updated.user_id == ctx.user_id
             assert updated.actor_type is ctx.actor_type
@@ -289,3 +292,80 @@ class TestObserve:
         assert len(missing_records) == 1
         assert missing_records[0].method == "ghost_method"
         assert missing_records[0].point == "seer_rpc_in"
+
+
+@pytest.mark.parametrize(
+    "actor",
+    [
+        Actor(type=ActorType.USER, id=7),
+        Actor(type=ActorType.SERVICE_ACCOUNT, id=7),
+        Actor(type=ActorType.AGENT, id=90, delegated_user_id=7),
+        Actor(type=ActorType.SYSTEM),
+    ],
+)
+def test_v2_identity_roundtrip(actor):
+    context = ViewerContextV2(actor=actor, organization_id=42, project_id=99)
+    wire = context.serialize()
+    assert wire == {
+        "version": 2,
+        "actor": actor.serialize(),
+        "organization_id": 42,
+        "project_id": 99,
+    }
+    assert deserialize_viewer_context(wire) == context
+    with pytest.raises(ValueError):
+        ViewerContext.deserialize(wire)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"version": 3},
+        {"version": True},
+        {"version": 2.0, "actor": {"type": "user", "id": 7}},
+        {"actor": {"type": "user", "id": 7}},
+        {"actor_type": "service_account", "user_id": 7},
+        {"version": 2, "actor": {"type": "service_account", "id": 7}},
+        {"version": 2, "actor": {"type": "user"}},
+        {"version": 2, "actor": {"type": "user", "id": True}},
+        {"version": 2, "actor": {"type": "alien"}},
+        {"version": 2},
+        {
+            "version": 2,
+            "actor": {"type": "service_account", "id": 7, "delegated_user_id": 8},
+            "organization_id": 42,
+        },
+        {
+            "version": 2,
+            "actor": {"type": "service_account", "id": 7, "superuser": {"expires_at": 123}},
+            "organization_id": 42,
+        },
+    ],
+)
+def test_reject_ambiguous_or_invalid_viewer_identity(payload):
+    with pytest.raises(ValueError):
+        deserialize_viewer_context(payload)
+
+
+@pytest.mark.parametrize("field", ["user_id", "actor_type", "superuser", "token"])
+def test_v2_rejects_flat_identity_fields(field):
+    with pytest.raises(ValueError):
+        deserialize_viewer_context({"version": 2, "actor": {"type": "user", "id": 7}, field: None})
+
+
+def test_v2_org_change_clears_actor_elevation():
+    context = ViewerContextV2(
+        actor=Actor(
+            type=ActorType.AGENT,
+            id=90,
+            delegated_user_id=7,
+            superuser=SuperuserAccess(expires_at=1234567890),
+        ),
+        organization_id=42,
+    )
+    with viewer_context_scope(context):
+        set_viewer_context_organization(43)
+        changed = get_viewer_context()
+        assert isinstance(changed, ViewerContextV2)
+        assert changed.actor == Actor(type=ActorType.AGENT, id=90, delegated_user_id=7)
+        assert changed.organization_id == 43
