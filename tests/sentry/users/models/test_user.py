@@ -39,6 +39,7 @@ from sentry.models.recentsearch import RecentSearch
 from sentry.models.rule import Rule
 from sentry.models.rulesnooze import RuleSnooze
 from sentry.models.search_common import SearchType
+from sentry.models.serviceaccount import ServiceAccount
 from sentry.models.tombstone import CellTombstone
 from sentry.monitors.models import Monitor
 from sentry.silo.base import SiloMode
@@ -491,6 +492,7 @@ class UserMergeToTest(BackupTestCase, HybridCloudTestMixin):
         RecentSearch,
         Rule,
         RuleSnooze,
+        ServiceAccount,
     )
     def test_only_source_user_is_member_of_organization(
         self, expected_models: list[type[Model]]
@@ -532,6 +534,7 @@ class UserMergeToTest(BackupTestCase, HybridCloudTestMixin):
         RecentSearch,
         Rule,
         RuleSnooze,
+        ServiceAccount,
     )
     def test_both_users_are_members_of_organization(
         self, expected_models: list[type[Model]]
