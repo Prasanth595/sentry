@@ -1,3 +1,4 @@
+import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -579,17 +580,47 @@ class _ConditionMatcher:
 _ConditionMatchers = Mapping[ConditionType, _ConditionMatcher]
 
 
-def _pattern_matcher(build: Callable[[list[str]], RuleCondition]) -> _ConditionMatcher:
-    """A field whose values are patterns, matched by ``build`` under ``glob`` or no operator."""
-    return _ConditionMatcher(TEXT_OPERATORS, lambda operator, values: build(values))
+# Relay reads `\\` as an escape for the character after it, special or not.
+_GLOB_SPECIAL_CHARS = re.compile(r"[\\*?\[\]{}]")
+
+
+def _text_glob(operator: ConditionOperator, value: str) -> str:
+    """The glob pattern that matches a field the way the literal `operator` compares it to `value`."""
+    literal = _GLOB_SPECIAL_CHARS.sub(r"\\\g<0>", value)
+    if operator is ConditionOperator.STARTS_WITH:
+        return f"{literal}*"
+    if operator is ConditionOperator.CONTAINS:
+        return f"*{literal}*"
+    if operator is ConditionOperator.ENDS_WITH:
+        return f"*{literal}"
+    return literal
+
+
+def _text_matcher(build: Callable[[list[str]], RuleCondition]) -> _ConditionMatcher:
+    """
+    A text field. ``build`` matches the values as glob patterns, which is what ``glob`` and
+    no operator pass; a literal operator turns each value into the pattern that compares
+    it the way the operator does.
+    """
+
+    def match(operator: ConditionOperator | None, values: list[str]) -> RuleCondition:
+        if operator is None or operator is ConditionOperator.GLOB:
+            return build(values)
+        return build([_text_glob(operator, value) for value in values])
+
+    return _ConditionMatcher(TEXT_OPERATORS, match)
 
 
 def _field_matcher(name: str) -> _ConditionMatcher:
-    return _pattern_matcher(lambda values: GlobCondition(name, values))
+    return _text_matcher(lambda values: GlobCondition(name, values))
 
 
 def _cidr_matcher(name: str) -> _ConditionMatcher:
-    return _pattern_matcher(lambda values: CidrCondition(name, values))
+    # An address or range is literal already, so `equals` passes the values through.
+    return _ConditionMatcher(
+        frozenset({ConditionOperator.EQUALS}),
+        lambda operator, values: CidrCondition(name, values),
+    )
 
 
 # The Relay comparator of each comparison operator.
@@ -627,10 +658,10 @@ _CONDITION_MATCHERS: Mapping[
     _ConditionMatcher | Mapping[DataType, _ConditionMatcher],
 ] = {
     ConditionType.ERROR_TYPE: {
-        DataType.ERROR: _pattern_matcher(_custom_error_type_condition),
+        DataType.ERROR: _text_matcher(_custom_error_type_condition),
     },
     ConditionType.ERROR_MESSAGE: {
-        DataType.ERROR: _pattern_matcher(_custom_error_message_condition),
+        DataType.ERROR: _text_matcher(_custom_error_message_condition),
     },
     ConditionType.LOG_MESSAGE: {
         DataType.LOG: _field_matcher("log.body"),
