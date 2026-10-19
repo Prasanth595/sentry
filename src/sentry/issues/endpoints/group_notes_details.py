@@ -89,14 +89,17 @@ class GroupNotesDetailsEndpoint(GroupEndpoint):
         if original_comment_log_action is None and serve_from_log:
             raise ResourceDoesNotExist
 
-        delete_comment(
-            note,
-            user=request.user,
-            source=resolve_action_source(request),
-            original_action_id=original_comment_log_action.id
-            if original_comment_log_action
-            else None,
-        )
+        try:
+            delete_comment(
+                note,
+                user=request.user,
+                source=resolve_action_source(request),
+                original_action_id=original_comment_log_action.id
+                if original_comment_log_action
+                else None,
+            )
+        except Activity.DoesNotExist:
+            raise ResourceDoesNotExist
 
         return Response(status=204)
 
@@ -150,16 +153,19 @@ class GroupNotesDetailsEndpoint(GroupEndpoint):
             if original_comment_log_action is None and serve_from_log:
                 raise ResourceDoesNotExist
 
-            note = update_comment(
-                note,
-                user=request.user,
-                data=dict(payload),
-                mentions=mentions,
-                source=resolve_action_source(request),
-                original_action_id=original_comment_log_action.id
-                if original_comment_log_action
-                else None,
-            )
+            try:
+                note = update_comment(
+                    note,
+                    user=request.user,
+                    data=dict(payload),
+                    mentions=mentions,
+                    source=resolve_action_source(request),
+                    original_action_id=original_comment_log_action.id
+                    if original_comment_log_action
+                    else None,
+                )
+            except Activity.DoesNotExist:
+                raise ResourceDoesNotExist
 
             if serve_from_log and original_comment_log_action is not None:
                 # Edits append a COMMENT_EDIT rather than updating the COMMENT.
