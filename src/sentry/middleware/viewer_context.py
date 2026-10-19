@@ -47,7 +47,9 @@ def ViewerContextMiddleware(
         request_ctx = _viewer_context_from_request(request)
         jwt_ctx = _viewer_context_from_jwt_header(request)
 
-        if jwt_ctx is not None and (
+        if jwt_ctx is not None and getattr(request, "user_from_viewer_context", False):
+            ctx = jwt_ctx
+        elif jwt_ctx is not None and (
             request_ctx.actor.type == ActorType.USER
             or request_ctx.actor.delegated_user_id is not None
         ):

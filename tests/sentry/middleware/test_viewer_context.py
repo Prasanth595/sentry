@@ -411,3 +411,25 @@ class ViewerContextMiddlewareTest(TestCase):
         ctx = captured[0]
         assert ctx.actor.id is None
         assert ctx.organization_id is None
+
+
+@override_settings(SENTRY_VIEWER_CONTEXT_ENABLED=True, SEER_API_SHARED_SECRET="test-secret")
+class ViewerContextCallbackIdentityTest(TestCase):
+    def test_authenticated_callback_preserves_agent_identity(self):
+        from sentry.viewer_context import Actor
+
+        context = ViewerContext(
+            actor=Actor(type=ActorType.AGENT, id=90, delegated_user_id=self.user.id),
+            organization_id=self.organization.id,
+        )
+        request = RequestFactory().get("/", HTTP_X_VIEWER_CONTEXT=encode_viewer_context(context))
+        AuthenticationMiddleware(lambda request: MagicMock()).process_request(request)
+        assert request.user.id == self.user.id
+        seen = []
+
+        def get_response(request):
+            seen.append(get_viewer_context())
+            return MagicMock(status_code=200)
+
+        ViewerContextMiddleware(get_response)(request)
+        assert seen == [context]

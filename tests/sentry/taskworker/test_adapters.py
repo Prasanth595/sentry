@@ -205,3 +205,16 @@ def test_v2_task_context_survives_redispatch(actor):
         child_headers: dict[str, str] = {}
         hook.on_dispatch(child_headers)
     assert child_headers == headers
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"version": 3},
+        {"version": 2, "organization_id": 42, "actor": {"type": "user"}},
+    ],
+)
+def test_invalid_actor_header_is_rejected_without_failing_task(payload):
+    hook = ViewerContextHook()
+    with hook.on_execute({hook.HEADER: orjson.dumps(payload).decode()}):
+        assert get_viewer_context() is None
