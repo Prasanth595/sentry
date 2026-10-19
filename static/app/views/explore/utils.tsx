@@ -91,6 +91,13 @@ export interface GetExploreUrlArgs {
   visualize?: BaseVisualize[];
 }
 
+function encodeCaseInsensitive(caseInsensitive: CaseInsensitive | undefined) {
+  if (!defined(caseInsensitive)) {
+    return null;
+  }
+  return caseInsensitive ? '1' : '0';
+}
+
 export function getExploreUrl({
   organization,
   selection,
@@ -134,7 +141,7 @@ export function getExploreUrl({
     table,
     title,
     referrer,
-    caseInsensitive: caseInsensitive ? '1' : undefined,
+    caseInsensitive: encodeCaseInsensitive(caseInsensitive),
     chartSelection: chartSelection ? JSON.stringify(chartSelection) : undefined,
     crossEvents: crossEvents?.length ? JSON.stringify(crossEvents) : undefined,
   };
@@ -175,7 +182,7 @@ function getExploreUrlFromSavedQueryUrl({
           groupBys: groupBys ?? [],
           query: q.query ?? '',
           sortBys: decodeSorts(q.orderby),
-          caseInsensitive: q.caseInsensitive ? '1' : null,
+          caseInsensitive: q.caseInsensitive ? '1' : '0',
         });
         const yAxes = normalized.yAxes ?? [];
 
@@ -213,6 +220,7 @@ function getExploreUrlFromSavedQueryUrl({
         : savedQuery.query[0].groupby,
     sort: savedQuery.query[0].orderby,
     query: savedQuery.query[0].query,
+    caseInsensitive: savedQuery.query[0].caseInsensitive ?? false,
     title: savedQuery.name,
     mode: savedQuery.query[0].mode,
     field: savedQuery.query[0].fields,
@@ -265,7 +273,7 @@ export function getExploreMultiQueryUrl({
           query,
           sortBys: sortBys[0] ? encodeSort(sortBys[0]) : undefined, // Explore only handles a single sort by
           yAxes,
-          caseInsensitive: caseInsensitive ? '1' : undefined,
+          caseInsensitive: caseInsensitive ?? undefined,
         })
     ),
     title,
