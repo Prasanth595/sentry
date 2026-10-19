@@ -121,37 +121,8 @@ class ViewerContext:
     def deserialize(cls, data: dict[str, Any]) -> ViewerContext:
         if not isinstance(data, dict):
             raise ValueError("Viewer context must be an object")
-        version = data.get("version", 1)
-        if type(version) is not int or version not in (1, 2):
-            raise ValueError("Unsupported viewer context version")
-        if version == 1:
-            if "actor" in data:
-                raise ValueError("Invalid V1 viewer context")
-            try:
-                actor_type = ActorType(data.get("actor_type", "unknown"))
-            except ValueError:
-                actor_type = ActorType.UNKNOWN
-            if actor_type == ActorType.SERVICE_ACCOUNT:
-                raise ValueError("Service accounts require a V2 viewer context")
-            user_id = data.get("user_id")
-            if actor_type == ActorType.USER and user_id is None:
-                actor_type = ActorType.UNKNOWN
-            # V1 user_id always identified a human, including on agent callbacks.
-            if user_id is not None and actor_type != ActorType.AGENT:
-                actor_type = ActorType.USER
-            superuser = data.get("superuser")
-            return cls(
-                actor=Actor(
-                    type=actor_type,
-                    id=user_id if actor_type == ActorType.USER else None,
-                    delegated_user_id=user_id if actor_type == ActorType.AGENT else None,
-                    superuser=SuperuserAccess.parse_obj(superuser)
-                    if superuser is not None
-                    else None,
-                ),
-                organization_id=data.get("organization_id"),
-                project_id=data.get("project_id"),
-            )
+        if type(data.get("version")) is not int or data["version"] != 2:
+            raise ValueError("Expected a V2 viewer context")
         if {"user_id", "actor_type", "superuser", "token"}.intersection(data):
             raise ValueError("V2 contexts cannot carry V1 identity or credentials")
         return cls(
@@ -162,7 +133,7 @@ class ViewerContext:
 
 
 def deserialize_viewer_context(data: dict[str, Any]) -> ViewerContext:
-    """Normalize older task headers and callbacks into the actor-based model."""
+    """Read an actor-based context from a task header or service callback."""
     return ViewerContext.deserialize(data)
 
 

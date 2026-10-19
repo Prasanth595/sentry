@@ -127,7 +127,7 @@ class TestViewerContextHook:
         hook = ViewerContextHook()
         headers = {
             "sentry-viewer-context": orjson.dumps(
-                {"organization_id": 42, "user_id": 7, "actor_type": "user"}
+                {"version": 2, "organization_id": 42, "actor": {"type": "user", "id": 7}}
             ).decode(),
         }
         with hook.on_execute(headers):
@@ -148,7 +148,7 @@ class TestViewerContextHook:
         hook = ViewerContextHook()
         headers = {
             "sentry-viewer-context": orjson.dumps(
-                {"organization_id": 99, "actor_type": "integration"}
+                {"version": 2, "organization_id": 99, "actor": {"type": "integration"}}
             ).decode(),
         }
         with hook.on_execute(headers):

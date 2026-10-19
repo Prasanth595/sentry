@@ -190,7 +190,8 @@ class TestDecodeViewerContext(TestCase):
     def test_expired_token_rejected(self):
         payload = {
             "organization_id": 1,
-            "actor_type": "user",
+            "version": 2,
+            "actor": {"type": "user", "id": 7},
             "iat": time.time() - 120,
             "exp": time.time() - 60,
             "iss": "sentry",
@@ -217,7 +218,8 @@ class TestDecodeViewerContext(TestCase):
     def test_leeway_accepts_nearly_expired(self):
         payload = {
             "organization_id": 1,
-            "actor_type": "user",
+            "version": 2,
+            "actor": {"type": "user", "id": 7},
             "iat": time.time() - 63,
             "exp": time.time() - 3,  # expired 3 seconds ago
             "iss": "sentry",
