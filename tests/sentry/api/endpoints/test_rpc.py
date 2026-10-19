@@ -15,7 +15,6 @@ from sentry.viewer_context import (
     Actor,
     ActorType,
     ViewerContext,
-    ViewerContextV2,
     get_viewer_context,
 )
 
@@ -170,7 +169,7 @@ class RpcServiceEndpointTest(APITestCase):
     def test_viewer_context_propagated_from_meta(self) -> None:
         """ViewerContext in meta is set as the contextvar during dispatch."""
         organization = self.create_organization()
-        captured_contexts: list[ViewerContext | ViewerContextV2 | None] = []
+        captured_contexts: list[ViewerContext | None] = []
 
         original_dispatch = __import__(
             "sentry.hybridcloud.rpc.service", fromlist=["dispatch_to_local_service"]
@@ -203,13 +202,13 @@ class RpcServiceEndpointTest(APITestCase):
         ctx = captured_contexts[0]
         assert isinstance(ctx, ViewerContext)
         assert ctx.organization_id == organization.id
-        assert ctx.user_id == 42
-        assert ctx.actor_type == ActorType.USER
+        assert ctx.actor.id == 42
+        assert ctx.actor.type == ActorType.USER
 
     def test_viewer_context_unknown_when_meta_empty(self) -> None:
         """Empty ViewerContext with UNKNOWN actor type when meta has no viewer_context."""
         organization = self.create_organization()
-        captured_contexts: list[ViewerContext | ViewerContextV2 | None] = []
+        captured_contexts: list[ViewerContext | None] = []
 
         original_dispatch = __import__(
             "sentry.hybridcloud.rpc.service", fromlist=["dispatch_to_local_service"]
@@ -232,14 +231,14 @@ class RpcServiceEndpointTest(APITestCase):
         assert len(captured_contexts) == 1
         ctx = captured_contexts[0]
         assert isinstance(ctx, ViewerContext)
-        assert ctx.user_id is None
+        assert ctx.actor.id is None
         assert ctx.organization_id is None
-        assert ctx.actor_type == ActorType.UNKNOWN
+        assert ctx.actor.type == ActorType.UNKNOWN
 
     def test_agent_viewer_context_roundtrip_through_meta(self) -> None:
         """Agent ViewerContext set on the sending side arrives on the receiving side."""
         organization = self.create_organization()
-        captured_contexts: list[ViewerContext | ViewerContextV2 | None] = []
+        captured_contexts: list[ViewerContext | None] = []
 
         original_dispatch = __import__(
             "sentry.hybridcloud.rpc.service", fromlist=["dispatch_to_local_service"]
@@ -250,7 +249,9 @@ class RpcServiceEndpointTest(APITestCase):
             return original_dispatch(*args, **kwargs)
 
         # Simulate what _send_to_remote_silo builds when ViewerContext is set
-        ctx = ViewerContext(organization_id=organization.id, user_id=42, actor_type=ActorType.AGENT)
+        ctx = ViewerContext(
+            actor=Actor(type=ActorType.AGENT, delegated_user_id=42), organization_id=organization.id
+        )
         path = self._get_path("organization", "get_organization_by_id")
         data = {
             "args": {"id": organization.id},
@@ -268,8 +269,8 @@ class RpcServiceEndpointTest(APITestCase):
         restored = captured_contexts[0]
         assert isinstance(restored, ViewerContext)
         assert restored.organization_id == ctx.organization_id
-        assert restored.user_id == ctx.user_id
-        assert restored.actor_type == ctx.actor_type
+        assert restored.actor.id == ctx.actor.id
+        assert restored.actor.type == ctx.actor.type
 
     def test_v2_service_account_context_propagated_from_meta(self) -> None:
         self._assert_v2_context_propagated(Actor(type=ActorType.SERVICE_ACCOUNT, id=7))
@@ -281,7 +282,7 @@ class RpcServiceEndpointTest(APITestCase):
         self._assert_v2_context_propagated(Actor(type=ActorType.USER, id=7))
 
     def _assert_v2_context_propagated(self, actor: Actor) -> None:
-        context = ViewerContextV2(actor=actor, organization_id=self.organization.id)
+        context = ViewerContext(actor=actor, organization_id=self.organization.id)
         path = self._get_path("organization", "get_organization_by_id")
         captured = []
 

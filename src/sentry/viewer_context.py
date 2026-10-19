@@ -8,7 +8,7 @@ import hashlib
 import logging
 import time
 from collections.abc import Generator, Mapping
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import jwt as pyjwt
 import sentry_sdk
@@ -19,15 +19,12 @@ from sentry.types.superuser import SUPERUSER_ACCESS_TTL, SuperuserAccess
 
 logger = logging.getLogger(__name__)
 
-if TYPE_CHECKING:
-    from sentry.auth.services.auth import AuthenticatedToken
-
 # Sentinel for `observe_viewer_context_propagation(ctx=...)`: distinguishes
 # "caller passed None" from "caller didn't pass ctx".
 _OBSERVE_USE_CONTEXTVAR: Any = object()
 
-_viewer_context_var: contextvars.ContextVar[ViewerContext | ViewerContextV2 | None] = (
-    contextvars.ContextVar("viewer_context", default=None)
+_viewer_context_var: contextvars.ContextVar[ViewerContext | None] = contextvars.ContextVar(
+    "viewer_context", default=None
 )
 
 """
@@ -48,66 +45,6 @@ class ActorType(enum.StrEnum):
     INTEGRATION = "integration"
     AGENT = "agent"
     UNKNOWN = "unknown"
-
-
-@dataclasses.dataclass(frozen=True)
-class ViewerContext:
-    """Identity of the caller for the current unit of work.
-
-    Set once at each entrypoint (API request, task, consumer, RPC) via
-    ``viewer_context_scope`` and readable anywhere via ``get_viewer_context``.
-
-    Frozen so that ``copy_context()`` produces a safe shallow copy when
-    propagating across threads.
-    """
-
-    organization_id: int | None = None
-    project_id: int | None = None
-    user_id: int | None = None
-    actor_type: ActorType = ActorType.UNKNOWN
-    # Elevation for this user/organization pair, including non-member access.
-    superuser: SuperuserAccess | None = dataclasses.field(default=None, repr=False)
-
-    # Carries scopes/kind for in-process permission checks.
-    # NOT propagated across process/service boundaries.
-    token: AuthenticatedToken | None = None
-
-    def serialize(self) -> dict[str, Any]:
-        """Serialize to a dict for cross-service headers (e.g. X-Viewer-Context)."""
-        result: dict[str, Any] = {"actor_type": self.actor_type.value}
-        if self.organization_id is not None:
-            result["organization_id"] = self.organization_id
-        if self.project_id is not None:
-            result["project_id"] = self.project_id
-        if self.user_id is not None:
-            result["user_id"] = self.user_id
-        if self.superuser is not None:
-            result["superuser"] = self.superuser.dict()
-        return result
-
-    @classmethod
-    def deserialize(cls, data: dict[str, Any]) -> ViewerContext:
-        """Reconstruct from a serialized dict. Token is not deserialized."""
-        if (
-            "actor" in data
-            or type(data.get("version", 1)) is not int
-            or data.get("version", 1) != 1
-        ):
-            raise ValueError("Expected a V1 viewer context")
-        superuser = data.get("superuser")
-        try:
-            actor_type = ActorType(data.get("actor_type", "unknown"))
-        except ValueError:
-            actor_type = ActorType.UNKNOWN
-        if actor_type == ActorType.SERVICE_ACCOUNT:
-            raise ValueError("Service accounts require a V2 viewer context")
-        return cls(
-            organization_id=data.get("organization_id"),
-            project_id=data.get("project_id"),
-            user_id=data.get("user_id"),
-            actor_type=actor_type,
-            superuser=SuperuserAccess.parse_obj(superuser) if superuser is not None else None,
-        )
 
 
 @dataclasses.dataclass(frozen=True)
@@ -159,8 +96,8 @@ class Actor:
 
 
 @dataclasses.dataclass(frozen=True)
-class ViewerContextV2:
-    """Actor-based context for the reader-first migration. Entrypoints still create V1."""
+class ViewerContext:
+    """Caller identity and organization/project scope for the current unit of work."""
 
     actor: Actor
     organization_id: int | None = None
@@ -181,9 +118,40 @@ class ViewerContextV2:
         return result
 
     @classmethod
-    def deserialize(cls, data: dict[str, Any]) -> ViewerContextV2:
-        if type(data.get("version")) is not int or data["version"] != 2:
-            raise ValueError("Expected a V2 viewer context")
+    def deserialize(cls, data: dict[str, Any]) -> ViewerContext:
+        if not isinstance(data, dict):
+            raise ValueError("Viewer context must be an object")
+        version = data.get("version", 1)
+        if type(version) is not int or version not in (1, 2):
+            raise ValueError("Unsupported viewer context version")
+        if version == 1:
+            if "actor" in data:
+                raise ValueError("Invalid V1 viewer context")
+            try:
+                actor_type = ActorType(data.get("actor_type", "unknown"))
+            except ValueError:
+                actor_type = ActorType.UNKNOWN
+            if actor_type == ActorType.SERVICE_ACCOUNT:
+                raise ValueError("Service accounts require a V2 viewer context")
+            user_id = data.get("user_id")
+            if actor_type == ActorType.USER and user_id is None:
+                actor_type = ActorType.UNKNOWN
+            # V1 user_id always identified a human, including on agent callbacks.
+            if user_id is not None and actor_type != ActorType.AGENT:
+                actor_type = ActorType.USER
+            superuser = data.get("superuser")
+            return cls(
+                actor=Actor(
+                    type=actor_type,
+                    id=user_id if actor_type == ActorType.USER else None,
+                    delegated_user_id=user_id if actor_type == ActorType.AGENT else None,
+                    superuser=SuperuserAccess.parse_obj(superuser)
+                    if superuser is not None
+                    else None,
+                ),
+                organization_id=data.get("organization_id"),
+                project_id=data.get("project_id"),
+            )
         if {"user_id", "actor_type", "superuser", "token"}.intersection(data):
             raise ValueError("V2 contexts cannot carry V1 identity or credentials")
         return cls(
@@ -193,15 +161,13 @@ class ViewerContextV2:
         )
 
 
-def deserialize_viewer_context(data: dict[str, Any]) -> ViewerContext | ViewerContextV2:
-    """Read both formats without converting or downgrading the caller's identity."""
-    if data.get("version") == 2:
-        return ViewerContextV2.deserialize(data)
+def deserialize_viewer_context(data: dict[str, Any]) -> ViewerContext:
+    """Normalize older task headers and callbacks into the actor-based model."""
     return ViewerContext.deserialize(data)
 
 
 @contextlib.contextmanager
-def viewer_context_scope(ctx: ViewerContext | ViewerContextV2) -> Generator[None]:
+def viewer_context_scope(ctx: ViewerContext) -> Generator[None]:
     """Enter a viewer context for the duration of a unit of work.
 
     Always use this instead of raw ``_viewer_context_var.set()`` —
@@ -214,7 +180,7 @@ def viewer_context_scope(ctx: ViewerContext | ViewerContextV2) -> Generator[None
         _viewer_context_var.reset(tok)
 
 
-def get_viewer_context() -> ViewerContext | ViewerContextV2 | None:
+def get_viewer_context() -> ViewerContext | None:
     """Return the current ``ViewerContext``, or ``None`` if not set."""
     return _viewer_context_var.get()
 
@@ -222,7 +188,7 @@ def get_viewer_context() -> ViewerContext | ViewerContextV2 | None:
 def observe_viewer_context_propagation(
     point: str,
     *,
-    ctx: ViewerContext | ViewerContextV2 | None | Any = _OBSERVE_USE_CONTEXTVAR,
+    ctx: ViewerContext | None | Any = _OBSERVE_USE_CONTEXTVAR,
     expected: bool = True,
     extra_attributes: Mapping[str, str] | None = None,
 ) -> None:
@@ -251,13 +217,9 @@ def observe_viewer_context_propagation(
         actor_type = "none"
         has_user = False
         has_org = False
-    elif isinstance(ctx, ViewerContextV2):
+    else:
         actor_type = ctx.actor.type.value
         has_user = ctx.actor.type == ActorType.USER or ctx.actor.delegated_user_id is not None
-        has_org = ctx.organization_id is not None
-    else:
-        actor_type = ctx.actor_type.value
-        has_user = ctx.user_id is not None
         has_org = ctx.organization_id is not None
 
     # Fixed tags layered on top of extras so callers can't accidentally swap
@@ -291,24 +253,16 @@ def set_viewer_context_superuser(
 ) -> None:
     """Attach elevation produced by the normal organization access checks."""
     ctx = get_viewer_context()
-    if isinstance(ctx, ViewerContextV2):
-        actor = ctx.actor
-        human_id = actor.id if actor.type == ActorType.USER else actor.delegated_user_id
-        if human_id == user_id:
-            _viewer_context_var.set(
-                dataclasses.replace(
-                    ctx,
-                    organization_id=organization_id,
-                    actor=dataclasses.replace(actor, superuser=superuser),
-                )
-            )
+    if ctx is None:
         return
-    if ctx is not None and ctx.user_id == user_id:
+    actor = ctx.actor
+    human_id = actor.id if actor.type == ActorType.USER else actor.delegated_user_id
+    if human_id == user_id:
         _viewer_context_var.set(
             dataclasses.replace(
                 ctx,
                 organization_id=organization_id,
-                superuser=superuser,
+                actor=dataclasses.replace(actor, superuser=superuser),
             )
         )
 
@@ -319,18 +273,13 @@ def set_viewer_context_organization(organization_id: int) -> None:
     if ctx is None or ctx.organization_id == organization_id:
         return
 
-    if isinstance(ctx, ViewerContextV2):
-        _viewer_context_var.set(
-            dataclasses.replace(
-                ctx,
-                organization_id=organization_id,
-                actor=dataclasses.replace(ctx.actor, superuser=None),
-            )
-        )
-        return
-
     _viewer_context_var.set(
-        dataclasses.replace(ctx, organization_id=organization_id, superuser=None)
+        dataclasses.replace(
+            ctx,
+            organization_id=organization_id,
+            project_id=None,
+            actor=dataclasses.replace(ctx.actor, superuser=None),
+        )
     )
 
 
@@ -398,7 +347,7 @@ def _get_verification_keys() -> dict[str, str]:
 
 
 def encode_viewer_context(
-    viewer_context: ViewerContext | ViewerContextV2,
+    viewer_context: ViewerContext,
     *,
     key: str | None = None,
     ttl: int | None = None,
@@ -411,11 +360,7 @@ def encode_viewer_context(
 
     now = time.time()
     expires_at = now + ttl
-    superuser = (
-        viewer_context.actor.superuser
-        if isinstance(viewer_context, ViewerContextV2)
-        else viewer_context.superuser
-    )
+    superuser = viewer_context.actor.superuser
     if superuser is not None:
         expires_at = min(
             expires_at,
@@ -462,7 +407,7 @@ def decode_viewer_context(
     *,
     key: str | None = None,
     leeway: int = 5,
-) -> ViewerContext | ViewerContextV2:
+) -> ViewerContext:
     """Decode and verify an HS256 JWT into a :class:`ViewerContext`.
 
     When *key* is provided it is used directly.  Otherwise all keys
@@ -494,7 +439,7 @@ def decode_viewer_context(
 
 def viewer_context_from_header(
     header_value: str,
-) -> ViewerContext | ViewerContextV2 | None:
+) -> ViewerContext | None:
     """Decode a ViewerContext from the JWT ``X-Viewer-Context`` header."""
     if not is_jwt_viewer_context(header_value):
         return None
