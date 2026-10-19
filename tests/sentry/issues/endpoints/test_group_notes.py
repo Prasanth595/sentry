@@ -253,6 +253,12 @@ class GroupNoteTest(APITestCase):
         assert self.client.get(previous_url, format="json").data == first_page.data
 
     def test_reads_activity_with_gale_source(self) -> None:
+        self._assert_reads_activity_with_source(GroupActionType.COMMENT)
+
+    def test_reads_activity_with_audit_source(self) -> None:
+        self._assert_reads_activity_with_source(GroupActionType.COMMENT_CREATED)
+
+    def _assert_reads_activity_with_source(self, creation_type: GroupActionType) -> None:
         group = self.group
         note = self.create_group_activity(
             group=group,
@@ -269,7 +275,7 @@ class GroupNoteTest(APITestCase):
         )
         self.create_group_action_log_entry(
             group=group,
-            type=GroupActionType.COMMENT,
+            type=creation_type,
             actor_type=GroupActorType.USER,
             actor_id=self.user.id,
             data={"comment_id": note.id, "text": "stale text"},
@@ -279,7 +285,7 @@ class GroupNoteTest(APITestCase):
         # The same key in another group must not supply this note's source.
         self.create_group_action_log_entry(
             group=self.create_group(),
-            type=GroupActionType.COMMENT,
+            type=creation_type,
             idempotency_key=activity_action_idempotency_key(app_note),
             source="api",
         )
