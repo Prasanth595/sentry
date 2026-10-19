@@ -17,7 +17,7 @@ export const metricIssueConfig: IssueCategoryConfigMapping = {
     defaultTimePeriod: {sinceFirstSeen: false},
     customCopy: {
       resolution: t('Back to baseline'),
-      eventUnits: t('Open Periods'),
+      eventUnits: t('Breaches'),
     },
     detector: {
       enabled: true,

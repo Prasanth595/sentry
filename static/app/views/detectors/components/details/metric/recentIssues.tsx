@@ -195,7 +195,7 @@ function RecentIssuesTableHeader() {
       <SimpleTable.HeaderCell>{t('Status')}</SimpleTable.HeaderCell>
       <SimpleTable.HeaderCell>{t('Last Opened')}</SimpleTable.HeaderCell>
       <SimpleTable.HeaderCell>{t('Duration')}</SimpleTable.HeaderCell>
-      <SimpleTable.HeaderCell>{t('Open Periods')}</SimpleTable.HeaderCell>
+      <SimpleTable.HeaderCell>{t('Breaches')}</SimpleTable.HeaderCell>
       <SimpleTable.HeaderCell />
     </SimpleTable.HeaderRow>
   );
@@ -271,7 +271,7 @@ function RecentIssueRow({
           size="xs"
           variant="transparent"
           icon={<IconChevron direction={isExpanded ? 'down' : 'right'} />}
-          aria-label={isExpanded ? t('Hide open periods') : t('Show open periods')}
+          aria-label={isExpanded ? t('Hide breaches') : t('Show breaches')}
           aria-expanded={isExpanded}
           onClick={onToggleExpanded}
         />

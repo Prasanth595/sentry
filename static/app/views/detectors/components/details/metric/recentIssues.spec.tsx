@@ -107,13 +107,12 @@ describe('MetricDetectorRecentIssues', () => {
 
     expect(screen.getAllByRole('row')).toHaveLength(3);
 
-    await userEvent.click(
-      flappyIssueRow.getByRole('button', {name: 'Show open periods'})
-    );
+    await userEvent.click(flappyIssueRow.getByRole('button', {name: 'Show breaches'}));
 
-    expect(
-      flappyIssueRow.getByRole('button', {name: 'Hide open periods'})
-    ).toHaveAttribute('aria-expanded', 'true');
+    expect(flappyIssueRow.getByRole('button', {name: 'Hide breaches'})).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    );
 
     expect(screen.getAllByRole('row')).toHaveLength(5);
   });
@@ -130,7 +129,7 @@ describe('MetricDetectorRecentIssues', () => {
 
     expect(issueRow.getByText('50min')).toBeInTheDocument();
 
-    await userEvent.click(issueRow.getByRole('button', {name: 'Show open periods'}));
+    await userEvent.click(issueRow.getByRole('button', {name: 'Show breaches'}));
 
     const [latestOpenPeriodRow, earliestOpenPeriodRow] = screen.getAllByRole('row', {
       name: /^Opened/,

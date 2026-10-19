@@ -202,9 +202,18 @@ describe('EventNavigation', () => {
         })
       );
 
-      const openPeriodsTab = screen.getByRole('tab', {name: /Open Periods/});
+      const breachesTab = screen.getByRole('tab', {name: /Breaches/});
 
-      expect(within(openPeriodsTab).getByText('3')).toBeInTheDocument();
+      expect(within(breachesTab).getByText('3')).toBeInTheDocument();
+    });
+
+    it('links to every breach of the issue', () => {
+      renderMetricNav(organization);
+
+      expect(screen.getByRole('button', {name: 'View More Breaches'})).toHaveAttribute(
+        'href',
+        expect.stringContaining('/open-periods/')
+      );
     });
   });
 

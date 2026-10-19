@@ -399,8 +399,8 @@ export function IssueEventNavigation({event, group}: IssueEventNavigationProps) 
                         analyticsEventName="Issue Details: All Open Periods Clicked"
                       >
                         {isSmallNav
-                          ? t('More Open Periods')
-                          : t('View More Open Periods')}
+                          ? t('More %s', issueTypeConfig.customCopy.eventUnits)
+                          : t('View More %s', issueTypeConfig.customCopy.eventUnits)}
                       </LinkButton>
                     )}
                     {issueTypeConfig.pages.checkIns.enabled && (
