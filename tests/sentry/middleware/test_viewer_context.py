@@ -423,7 +423,9 @@ class ViewerContextCallbackIdentityTest(TestCase):
             organization_id=self.organization.id,
         )
         request = RequestFactory().get("/", HTTP_X_VIEWER_CONTEXT=encode_viewer_context(context))
-        AuthenticationMiddleware(lambda request: MagicMock()).process_request(request)
+        AuthenticationMiddleware(lambda request: MagicMock()).process_request(
+            cast(Request, request)
+        )
         assert request.user.id == self.user.id
         seen = []
 
