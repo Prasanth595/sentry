@@ -183,7 +183,7 @@ class AutofixOnCompletionHook(AgentOnCompletionHook):
             state,
             group,
             fallback_referrer=run_referrer,
-            actor_user_id=viewer_context.user_id if viewer_context is not None else None,
+            actor_user_id=viewer_context.actor.user_id if viewer_context is not None else None,
         )
         cls._maybe_continue_pipeline(
             organization, run_id, state, group, fallback_referrer=run_referrer
@@ -224,7 +224,7 @@ class AutofixOnCompletionHook(AgentOnCompletionHook):
                 state,
                 group,
                 fallback_referrer=run_referrer,
-                actor_user_id=viewer_context.user_id if viewer_context is not None else None,
+                actor_user_id=viewer_context.actor.user_id if viewer_context is not None else None,
                 iteration_fields=iteration_fields,
             )
 

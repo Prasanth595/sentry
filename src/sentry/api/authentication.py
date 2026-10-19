@@ -978,7 +978,7 @@ class ViewerContextAuthentication(BaseAuthentication):
         verification_keys = _get_verification_keys()
         vc = viewer_context_from_header(header)
 
-        if vc is None or vc.user_id is None:
+        if vc is None or vc.actor.user_id is None:
             # TODO(jstanley): Temporary logging for debugging non-public prod 401s
             # during X-Viewer-Context propagation (Seer code mode callbacks).
             # Remove once the auth issue is resolved.
@@ -994,7 +994,7 @@ class ViewerContextAuthentication(BaseAuthentication):
             )
             return None
 
-        user = user_service.get_user(user_id=vc.user_id)
+        user = user_service.get_user(user_id=vc.actor.user_id)
         if user is None or not user.is_active or getattr(user, "is_suspended", False):
             # TODO(jstanley): Temporary logging for debugging non-public prod 401s
             # during X-Viewer-Context propagation (Seer code mode callbacks).
@@ -1007,7 +1007,7 @@ class ViewerContextAuthentication(BaseAuthentication):
                     else "user_suspended"
                     if getattr(user, "is_suspended", False)
                     else "user_inactive",
-                    "vc_user_id": vc.user_id,
+                    "vc_user_id": vc.actor.user_id,
                     "path": request.path,
                 },
             )
@@ -1022,7 +1022,7 @@ class ViewerContextAuthentication(BaseAuthentication):
         # avoid requiring browser-session SSO state on service callbacks.
         setattr(request, "user_from_viewer_context", True)
 
-        if vc.superuser is not None:
+        if vc.actor.superuser is not None:
             org_context = (
                 organization_service.get_organization_by_id(
                     id=vc.organization_id,
@@ -1034,7 +1034,7 @@ class ViewerContextAuthentication(BaseAuthentication):
                 else None
             )
             delegated = (
-                resolve_superuser_access(vc.superuser, user, org_context)
+                resolve_superuser_access(vc.actor.superuser, user, org_context)
                 if org_context is not None
                 else None
             )
@@ -1046,7 +1046,7 @@ class ViewerContextAuthentication(BaseAuthentication):
                 user_id=user.id,
                 organization_id=vc.organization_id,
                 scopes=sorted(scopes),
-                superuser=vc.superuser,
+                superuser=vc.actor.superuser,
             )
             # Org-bound access must not enable global staff/superuser bypasses.
             user = user.copy(

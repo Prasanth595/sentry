@@ -197,8 +197,8 @@ class RpcServiceEndpointTest(APITestCase):
         ctx = captured_contexts[0]
         assert ctx is not None
         assert ctx.organization_id == organization.id
-        assert ctx.user_id == 42
-        assert ctx.actor_type == ActorType.USER
+        assert ctx.actor.user_id == 42
+        assert ctx.actor.type == ActorType.USER
 
     def test_viewer_context_unknown_when_meta_empty(self) -> None:
         """Empty ViewerContext with UNKNOWN actor type when meta has no viewer_context."""
@@ -226,14 +226,15 @@ class RpcServiceEndpointTest(APITestCase):
         assert len(captured_contexts) == 1
         ctx = captured_contexts[0]
         assert ctx is not None
-        assert ctx.user_id is None
+        assert ctx.actor.user_id is None
         assert ctx.organization_id is None
-        assert ctx.actor_type == ActorType.UNKNOWN
+        assert ctx.actor.type == ActorType.UNKNOWN
 
     def test_agent_viewer_context_roundtrip_through_meta(self) -> None:
         self._assert_actor_roundtrip(
             ViewerContext(
-                organization_id=self.organization.id, user_id=42, actor_type=ActorType.AGENT
+                actor=Actor(type=ActorType.AGENT, delegated_user_id=42),
+                organization_id=self.organization.id,
             )
         )
 
@@ -276,6 +277,6 @@ class RpcServiceEndpointTest(APITestCase):
         restored = captured_contexts[0]
         assert restored is not None
         assert restored.organization_id == ctx.organization_id
-        assert restored.user_id == ctx.user_id
-        assert restored.actor_type == ctx.actor_type
+        assert restored.actor.user_id == ctx.actor.user_id
+        assert restored.actor.type == ctx.actor.type
         assert restored.actor == ctx.actor

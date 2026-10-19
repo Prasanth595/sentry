@@ -40,6 +40,7 @@ from sentry.utils import json
 from sentry.utils.cache import cache
 from sentry.utils.locking import UnableToAcquireLock
 from sentry.viewer_context import (
+    Actor,
     ActorType,
     ViewerContext,
     decode_viewer_context,
@@ -369,8 +370,7 @@ class TestAutofixIssueDataJudge(SentryTestCase):
             key="viewer-context-test-secret",
         )
         assert viewer_context == ViewerContext(
-            organization_id=self.organization.id,
-            actor_type=ActorType.SYSTEM,
+            actor=Actor(type=ActorType.SYSTEM), organization_id=self.organization.id
         )
         assert get_viewer_context() is None
         prompt = json.loads(orjson.loads(mock_urlopen.call_args.kwargs["body"])["prompt"])

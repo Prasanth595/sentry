@@ -47,8 +47,8 @@ class SeerRpcViewerContextAuthentication(BaseAuthentication):
             return None
 
         user: Any = AnonymousUser()
-        if vc.user_id is not None:
-            resolved = user_service.get_user(user_id=vc.user_id)
+        if vc.actor.user_id is not None:
+            resolved = user_service.get_user(user_id=vc.actor.user_id)
             if resolved is not None:
                 user = resolved
 

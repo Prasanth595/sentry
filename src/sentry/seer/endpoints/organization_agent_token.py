@@ -107,9 +107,9 @@ class OrganizationAgentTokenEndpoint(OrganizationEndpoint):
 
         viewer = get_viewer_context()
         superuser = (
-            viewer.superuser
+            viewer.actor.superuser
             if viewer is not None
-            and viewer.user_id == user_id
+            and viewer.actor.user_id == user_id
             and viewer.organization_id == organization.id
             else None
         )
