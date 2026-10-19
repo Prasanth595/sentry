@@ -7,6 +7,7 @@ from rest_framework import serializers
 
 from sentry.models.custominboundfilter import (
     MAX_FILTERS_PER_PROJECT,
+    TEXT_OPERATORS,
     ConditionOperator,
     ConditionType,
     CustomInboundFilter,
@@ -579,8 +580,8 @@ _ConditionMatchers = Mapping[ConditionType, _ConditionMatcher]
 
 
 def _pattern_matcher(build: Callable[[list[str]], RuleCondition]) -> _ConditionMatcher:
-    """A field that takes no operator: ``build`` matches the values as patterns."""
-    return _ConditionMatcher(frozenset(), lambda operator, values: build(values))
+    """A field whose values are patterns, matched by ``build`` under ``glob`` or no operator."""
+    return _ConditionMatcher(TEXT_OPERATORS, lambda operator, values: build(values))
 
 
 def _field_matcher(name: str) -> _ConditionMatcher:
@@ -609,7 +610,7 @@ def _release_matcher(name: str) -> _ConditionMatcher:
             return patterns.match(operator, values)
         return _any_of([ReleaseCondition(name, comparator, value) for value in values])
 
-    return _ConditionMatcher(frozenset(_RELEASE_COMPARATORS), match)
+    return _ConditionMatcher(TEXT_OPERATORS | frozenset(_RELEASE_COMPARATORS), match)
 
 
 def _any_of(conditions: list[RuleCondition]) -> RuleCondition:
