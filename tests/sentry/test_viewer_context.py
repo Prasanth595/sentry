@@ -40,7 +40,13 @@ class TestViewerContext:
     )
     def test_invalid_superuser_claim(self, superuser):
         with pytest.raises(ValueError):
-            ViewerContext.deserialize({"superuser": superuser})
+            ViewerContext.deserialize(
+                {
+                    "version": 2,
+                    "organization_id": 42,
+                    "actor": {"type": "user", "id": 7, "superuser": superuser},
+                }
+            )
 
     def test_superuser_access_roundtrip_and_org_change(self):
         ctx = ViewerContext(
@@ -366,30 +372,15 @@ def test_v2_org_change_clears_actor_elevation():
 
 
 @pytest.mark.parametrize(
-    ("wire", "actor"),
+    "wire",
     [
-        ({"user_id": 7}, Actor(type=ActorType.USER, id=7)),
-        ({"actor_type": "user"}, Actor(type=ActorType.UNKNOWN)),
-        ({"actor_type": "agent", "user_id": 7}, Actor(type=ActorType.AGENT, delegated_user_id=7)),
-        ({"actor_type": "system"}, Actor(type=ActorType.SYSTEM)),
+        {"user_id": 7},
+        {"actor_type": "user"},
+        {"actor_type": "agent", "user_id": 7},
+        {"actor_type": "system"},
+        {"version": 1, "organization_id": 42, "user_id": 7},
     ],
 )
-def test_legacy_wire_normalizes_to_actor(wire, actor):
-    context = deserialize_viewer_context(wire)
-    assert context.actor == actor
-    assert context.serialize() == {"version": 2, "actor": actor.serialize()}
-
-
-def test_legacy_credentials_do_not_enter_actor_context():
-    context = deserialize_viewer_context(
-        {
-            "organization_id": 42,
-            "user_id": 7,
-            "token": {"kind": "api_token", "scopes": ["org:write"]},
-        }
-    )
-    assert context.serialize() == {
-        "version": 2,
-        "organization_id": 42,
-        "actor": {"type": "user", "id": 7},
-    }
+def test_rejects_legacy_wire_after_cutover(wire):
+    with pytest.raises(ValueError, match="Expected a V2 viewer context"):
+        deserialize_viewer_context(wire)

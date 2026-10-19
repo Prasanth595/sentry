@@ -185,8 +185,8 @@ class RpcServiceEndpointTest(APITestCase):
             "meta": {
                 "viewer_context": {
                     "organization_id": organization.id,
-                    "user_id": 42,
-                    "actor_type": "user",
+                    "version": 2,
+                    "actor": {"type": "user", "id": 42},
                 }
             },
         }
