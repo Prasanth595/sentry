@@ -9,6 +9,7 @@ from sentry.viewer_context import (
     Actor,
     ActorType,
     ViewerContext,
+    ViewerContextV2,
     decode_viewer_context,
     encode_viewer_context,
 )
@@ -22,7 +23,7 @@ SECRET = "service-accounts-test-viewer-context-secret"
 class OrganizationServiceAccountViewerContextTest(APITestCase):
     endpoint = "sentry-api-0-organization-service-account-viewer-context"
 
-    def _post(self, viewer_context: ViewerContext) -> Any:
+    def _post(self, viewer_context: ViewerContext | ViewerContextV2) -> Any:
         url = reverse(self.endpoint, args=[self.organization.slug, "7"])
         with self.feature(FEATURE_FLAG):
             return self.client.post(
@@ -31,13 +32,14 @@ class OrganizationServiceAccountViewerContextTest(APITestCase):
 
     def test_returns_org_viewer_context(self) -> None:
         response = self._post(
-            ViewerContext(actor=Actor(type=ActorType.SYSTEM), organization_id=self.organization.id)
+            ViewerContext(organization_id=self.organization.id, actor_type=ActorType.SYSTEM)
         )
 
         assert response.status_code == 200
         returned = decode_viewer_context(response.data["viewerContext"])
+        assert isinstance(returned, ViewerContext)
         assert returned.organization_id == self.organization.id
-        assert returned.actor.user_id is None
+        assert returned.user_id is None
 
     def test_rejects_viewer_context_for_other_org(self) -> None:
         other_org = self.create_organization()
@@ -48,10 +50,7 @@ class OrganizationServiceAccountViewerContextTest(APITestCase):
 
     def test_rejects_viewer_context_with_user(self) -> None:
         response = self._post(
-            ViewerContext(
-                actor=Actor(type=ActorType.USER, id=self.user.id),
-                organization_id=self.organization.id,
-            )
+            ViewerContext(organization_id=self.organization.id, user_id=self.user.id)
         )
 
         assert response.status_code == 403
@@ -68,7 +67,7 @@ class OrganizationServiceAccountViewerContextTest(APITestCase):
     def test_flag_off_returns_404(self) -> None:
         url = reverse(self.endpoint, args=[self.organization.slug, "7"])
         viewer_context = ViewerContext(
-            actor=Actor(type=ActorType.SYSTEM), organization_id=self.organization.id
+            organization_id=self.organization.id, actor_type=ActorType.SYSTEM
         )
 
         response = self.client.post(
@@ -76,3 +75,23 @@ class OrganizationServiceAccountViewerContextTest(APITestCase):
         )
 
         assert response.status_code == 404
+
+    def test_v2_service_account_cannot_issue_another_account_context(self) -> None:
+        response = self._post(
+            ViewerContextV2(
+                actor=Actor(type=ActorType.SERVICE_ACCOUNT, id=7),
+                organization_id=self.organization.id,
+            )
+        )
+        assert response.status_code == 403
+
+    def test_v2_system_context_is_accepted(self) -> None:
+        response = self._post(
+            ViewerContextV2(
+                actor=Actor(type=ActorType.SYSTEM),
+                organization_id=self.organization.id,
+            )
+        )
+        assert response.status_code == 200
+        returned = decode_viewer_context(response.data["viewerContext"])
+        assert isinstance(returned, ViewerContext)

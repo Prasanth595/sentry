@@ -13,9 +13,9 @@ from urllib3 import BaseHTTPResponse, HTTPConnectionPool, Retry
 from sentry.net.http import connection_from_url
 from sentry.utils import metrics
 from sentry.viewer_context import (
-    Actor,
     ActorType,
     ViewerContext,
+    ViewerContextV2,
     encode_viewer_context,
     get_viewer_context,
     observe_viewer_context_propagation,
@@ -59,12 +59,12 @@ seer_grouping_default_connection_pool = connection_from_url(
 def _resolve_viewer_context(
     explicit: SeerViewerContext | None = None,
     endpoint: str | None = None,
-) -> ViewerContext | None:
+) -> ViewerContext | ViewerContextV2 | None:
     """Merge explicit SeerViewerContext with the contextvar.
 
     Converts the legacy SeerViewerContext into a ViewerContext, then merges
     with the contextvar. Explicit non-None fields win. On disagreement,
-    logs a warning and strips actor elevation for safety.
+    logs a warning and strips the token for safety.
     """
     vc = get_viewer_context()
 
@@ -73,15 +73,29 @@ def _resolve_viewer_context(
     if explicit is None:
         return vc
 
-    explicit_org_id = explicit.get("organization_id")
-    explicit_user_id = explicit.get("user_id")
+    if isinstance(vc, ViewerContextV2):
+        actor = vc.actor
+        human_id = actor.id if actor.type == ActorType.USER else actor.delegated_user_id
+        if explicit.get("user_id") not in (None, human_id):
+            raise ValueError("Cannot override a V2 actor with a legacy user ID")
+        explicit_org = explicit.get("organization_id")
+        if vc.organization_id is not None and explicit_org not in (None, vc.organization_id):
+            raise ValueError("Cannot override a V2 viewer's organization")
+        return replace(
+            vc, organization_id=explicit_org if explicit_org is not None else vc.organization_id
+        )
+
+    explicit_vc = ViewerContext(
+        organization_id=explicit.get("organization_id"),
+        user_id=explicit.get("user_id"),
+    )
 
     if vc is None:
         logger.warning(
             "seer.viewer_context_not_set",
             extra={
-                "explicit_org_id": explicit_org_id,
-                "explicit_user_id": explicit_user_id,
+                "explicit_org_id": explicit_vc.organization_id,
+                "explicit_user_id": explicit_vc.user_id,
                 "endpoint": endpoint,
             },
         )
@@ -89,53 +103,39 @@ def _resolve_viewer_context(
             "seer.viewer_context_resolution",
             tags={"outcome": "contextvar_missing", "endpoint": endpoint or "unknown"},
         )
-        return ViewerContext(
-            actor=Actor(type=ActorType.USER, id=explicit_user_id)
-            if explicit_user_id is not None
-            else Actor(),
-            organization_id=explicit_org_id,
-        )
-
-    if vc.actor.type == ActorType.SERVICE_ACCOUNT and (
-        explicit_user_id is not None or explicit_org_id not in (None, vc.organization_id)
-    ):
-        raise ValueError("Cannot override a service-account viewer with a legacy viewer context")
+        return explicit_vc
 
     has_mismatch = False
     org_id = vc.organization_id
-    user_id = vc.actor.user_id
-    actor = vc.actor
+    user_id = vc.user_id
 
-    if explicit_org_id is not None:
-        if org_id is not None and org_id != explicit_org_id:
+    if explicit_vc.organization_id is not None:
+        if org_id is not None and org_id != explicit_vc.organization_id:
             logger.warning(
                 "seer.viewer_context_mismatch",
                 extra={
                     "field": "organization_id",
                     "contextvar": org_id,
-                    "explicit": explicit_org_id,
+                    "explicit": explicit_vc.organization_id,
                     "endpoint": endpoint,
                 },
             )
             has_mismatch = True
-        org_id = explicit_org_id
+        org_id = explicit_vc.organization_id
 
-    if explicit_user_id is not None:
-        if user_id is not None and user_id != explicit_user_id:
+    if explicit_vc.user_id is not None:
+        if user_id is not None and user_id != explicit_vc.user_id:
             logger.warning(
                 "seer.viewer_context_mismatch",
                 extra={
                     "field": "user_id",
                     "contextvar": user_id,
-                    "explicit": explicit_user_id,
+                    "explicit": explicit_vc.user_id,
                     "endpoint": endpoint,
                 },
             )
             has_mismatch = True
-        if actor.type == ActorType.USER:
-            actor = replace(actor, id=explicit_user_id)
-        else:
-            actor = replace(actor, delegated_user_id=explicit_user_id)
+        user_id = explicit_vc.user_id
 
     metrics.incr(
         "seer.viewer_context_resolution",
@@ -150,10 +150,12 @@ def _resolve_viewer_context(
         return replace(
             vc,
             organization_id=org_id,
-            actor=replace(actor, superuser=None),
+            user_id=user_id,
             project_id=None,
+            token=None,
+            superuser=None,
         )
-    return replace(vc, organization_id=org_id, actor=actor)
+    return replace(vc, organization_id=org_id, user_id=user_id)
 
 
 @traces.trace

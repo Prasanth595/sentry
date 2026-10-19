@@ -10,7 +10,13 @@ from sentry.seer.signed_seer_api import _resolve_viewer_context
 from sentry.testutils.cases import APITestCase
 from sentry.testutils.helpers.datetime import freeze_time
 from sentry.types.superuser import SuperuserAccess
-from sentry.viewer_context import Actor, ActorType, ViewerContext, encode_viewer_context
+from sentry.viewer_context import (
+    Actor,
+    ActorType,
+    ViewerContext,
+    ViewerContextV2,
+    encode_viewer_context,
+)
 
 SECRET = "test-seer-api-shared-secret-thirty-two-bytes!"
 
@@ -26,14 +32,12 @@ class SuperuserViewerContextTest(APITestCase):
     def _viewer_header(self, expires_at: int | None) -> str:
         return encode_viewer_context(
             ViewerContext(
-                actor=Actor(
-                    type=ActorType.USER,
-                    id=self.employee.id,
-                    superuser=SuperuserAccess(expires_at=expires_at)
-                    if expires_at is not None
-                    else None,
-                ),
                 organization_id=self.organization.id,
+                user_id=self.employee.id,
+                actor_type=ActorType.USER,
+                superuser=SuperuserAccess(expires_at=expires_at)
+                if expires_at is not None
+                else None,
             ),
             key=SECRET,
         )
@@ -53,7 +57,7 @@ class SuperuserViewerContextTest(APITestCase):
 
             def capture_context(*_args: Any, **kwargs: Any) -> Any:
                 resolved = _resolve_viewer_context(kwargs["viewer_context"])
-                assert resolved is not None
+                assert isinstance(resolved, ViewerContext)
                 resolved_contexts.append(resolved)
                 return outbound.return_value
 
@@ -74,7 +78,7 @@ class SuperuserViewerContextTest(APITestCase):
     def _assert_member_callback_access(self, role: str, write_status: int) -> None:
         self.create_member(user=self.employee, organization=self.organization, role=role)
         resolved = self._approved_chat_context()
-        assert resolved.actor.superuser is None
+        assert resolved.superuser is None
 
         client = APIClient()
         client.credentials(HTTP_X_VIEWER_CONTEXT=encode_viewer_context(resolved, key=SECRET))
@@ -100,12 +104,10 @@ class SuperuserViewerContextTest(APITestCase):
             resolved = self._approved_chat_context()
             assert self.client.put(self.path, {}, format="json").status_code == browser_write_status
         assert resolved.organization_id == self.organization.id
-        assert resolved.actor.superuser is not None
-        assert type(resolved.actor.superuser.expires_at) is int
-        assert 0 < resolved.actor.superuser.expires_at - timezone.now().timestamp() <= 300
-        assert resolved.actor.superuser.dict() == {
-            "expires_at": resolved.actor.superuser.expires_at
-        }
+        assert resolved.superuser is not None
+        assert type(resolved.superuser.expires_at) is int
+        assert 0 < resolved.superuser.expires_at - timezone.now().timestamp() <= 300
+        assert resolved.superuser.dict() == {"expires_at": resolved.superuser.expires_at}
 
         client = APIClient()
         client.credentials(HTTP_X_VIEWER_CONTEXT=encode_viewer_context(resolved, key=SECRET))
@@ -123,3 +125,19 @@ class SuperuserViewerContextTest(APITestCase):
             HTTP_X_VIEWER_CONTEXT=self._viewer_header(int(timezone.now().timestamp()) + 360)
         )
         assert client.get(self.path).status_code == 401
+
+    def test_v2_actor_elevation_is_read_only_and_organization_bound(self) -> None:
+        context = ViewerContextV2(
+            actor=Actor(
+                type=ActorType.USER,
+                id=self.employee.id,
+                superuser=SuperuserAccess(expires_at=int(timezone.now().timestamp()) + 120),
+            ),
+            organization_id=self.organization.id,
+        )
+        client = APIClient()
+        client.credentials(HTTP_X_VIEWER_CONTEXT=encode_viewer_context(context, key=SECRET))
+        assert client.get(self.path).status_code == 200
+        assert client.put(self.path, {}, format="json").status_code == 403
+        other = self.create_organization()
+        assert client.get(f"/api/0/organizations/{other.slug}/").status_code == 403

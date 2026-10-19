@@ -9,7 +9,7 @@ from rest_framework.request import Request
 from sentry.api.authentication import AuthenticationSiloLimit
 from sentry.silo.base import SiloMode
 from sentry.users.services.user.service import user_service
-from sentry.viewer_context import viewer_context_from_header
+from sentry.viewer_context import ActorType, ViewerContextV2, viewer_context_from_header
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +47,13 @@ class SeerRpcViewerContextAuthentication(BaseAuthentication):
             return None
 
         user: Any = AnonymousUser()
-        if vc.actor.user_id is not None:
-            resolved = user_service.get_user(user_id=vc.actor.user_id)
+        if isinstance(vc, ViewerContextV2):
+            actor = vc.actor
+            user_id = actor.id if actor.type == ActorType.USER else actor.delegated_user_id
+        else:
+            user_id = vc.user_id
+        if user_id is not None:
+            resolved = user_service.get_user(user_id=user_id)
             if resolved is not None:
                 user = resolved
 

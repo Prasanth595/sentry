@@ -10,13 +10,7 @@ from sentry.testutils.cases import TestCase
 from sentry.testutils.helpers import with_feature
 from sentry.testutils.requests import drf_request_from_request
 from sentry.users.models.user import User
-from sentry.viewer_context import (
-    Actor,
-    ActorType,
-    ViewerContext,
-    get_viewer_context,
-    viewer_context_scope,
-)
+from sentry.viewer_context import ViewerContext, get_viewer_context, viewer_context_scope
 
 
 class TeamPermissionBase(TestCase):
@@ -55,12 +49,12 @@ class TeamEndpointViewerContextTest(TeamPermissionBase):
         request = drf_request_from_request(raw_request)
         request._request.organization = None
 
-        with viewer_context_scope(ViewerContext(actor=Actor(type=ActorType.USER, id=self.user.id))):
+        with viewer_context_scope(ViewerContext(user_id=self.user.id)):
             endpoint.convert_args(request, self.org.slug, self.team.slug)
             ctx = get_viewer_context()
 
         assert ctx is not None
-        assert ctx.actor.user_id == self.user.id
+        assert ctx.user_id == self.user.id
         assert ctx.organization_id == self.org.id
 
 

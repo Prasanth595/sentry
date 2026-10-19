@@ -51,7 +51,6 @@ from sentry.testutils.skips import requires_snuba
 from sentry.types.superuser import SuperuserAccess
 from sentry.utils import json
 from sentry.viewer_context import (
-    Actor,
     ActorType,
     ViewerContext,
     encode_viewer_context,
@@ -99,15 +98,17 @@ class SuperuserAgentTokenTest(APITestCase):
                 f"{self.path}seer/explorer-chat/", {"query": "List projects"}, format="json"
             )
         assert response.status_code == 200, response.content
-        grant = resolved_contexts[0].actor.superuser
+        grant = resolved_contexts[0].superuser
         assert grant is not None
         return grant
 
     def _mint(self, grant):
         viewer = encode_viewer_context(
             ViewerContext(
-                actor=Actor(type=ActorType.USER, id=self.employee.id, superuser=grant),
                 organization_id=self.org.id,
+                user_id=self.employee.id,
+                actor_type=ActorType.USER,
+                superuser=grant,
             ),
             key=SECRET,
         )
@@ -278,15 +279,13 @@ class SuperuserAgentTokenTest(APITestCase):
         )
         assert org_context is not None
         with self.feature(FLAG):
-            with viewer_context_scope(
-                ViewerContext(actor=Actor(type=ActorType.USER, id=self.employee.id))
-            ):
+            with viewer_context_scope(ViewerContext(user_id=self.employee.id)):
                 access.from_request_org_and_scopes(
                     request=request, rpc_user_org_context=org_context
                 )
                 viewer = get_viewer_context()
                 assert viewer is not None
-                assert viewer.actor.superuser is None
+                assert viewer.superuser is None
 
                 request.superuser.authorize_org(
                     self.org.slug, "for_unit_test", "Testing delegated access"
@@ -296,7 +295,7 @@ class SuperuserAgentTokenTest(APITestCase):
                 )
                 viewer = get_viewer_context()
                 assert viewer is not None
-                grant = viewer.actor.superuser
+                grant = viewer.superuser
             assert grant is not None
             assert self._mint(grant).status_code == 200
 
@@ -2102,9 +2101,10 @@ class AgentTokenPublicGetMatrixTest(APITestCase):
         if authentication is MatrixAuthentication.VIEWER_CONTEXT:
             viewer_context = encode_viewer_context(
                 ViewerContext(
-                    actor=Actor(type=ActorType.USER, id=self.owner.id),
+                    user_id=self.owner.id,
                     organization_id=self.org.id,
                     project_id=self.project.id,
+                    actor_type=ActorType.USER,
                 ),
                 key=SECRET,
             )
@@ -2134,9 +2134,10 @@ class AgentTokenPublicGetMatrixTest(APITestCase):
         elif authentication is MatrixAuthentication.VIEWER_CONTEXT:
             headers["HTTP_X_VIEWER_CONTEXT"] = encode_viewer_context(
                 ViewerContext(
-                    actor=Actor(type=ActorType.USER, id=self.owner.id),
+                    user_id=self.owner.id,
                     organization_id=self.org.id,
                     project_id=self.project.id,
+                    actor_type=ActorType.USER,
                 ),
                 key=SECRET,
             )

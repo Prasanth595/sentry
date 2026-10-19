@@ -10,9 +10,9 @@ from django.http.response import HttpResponseBase
 from sentry.auth.services.auth import AuthenticatedToken
 from sentry.seer.agent_token import is_agent_auth
 from sentry.viewer_context import (
-    Actor,
     ActorType,
     ViewerContext,
+    ViewerContextV2,
     viewer_context_from_header,
     viewer_context_scope,
 )
@@ -44,10 +44,11 @@ def ViewerContextMiddleware(
         if request.path_info.startswith(settings.ANONYMOUS_STATIC_PREFIXES):
             return get_response(request)
 
+        ctx: ViewerContext | ViewerContextV2
         request_ctx = _viewer_context_from_request(request)
         jwt_ctx = _viewer_context_from_jwt_header(request)
 
-        if jwt_ctx is not None and request_ctx.actor.user_id is not None:
+        if jwt_ctx is not None and request_ctx.user_id is not None:
             # Direct user or agent authentication is authoritative when both are present.
             if (
                 jwt_ctx.organization_id is not None
@@ -73,7 +74,7 @@ def ViewerContextMiddleware(
     return ViewerContextMiddleware_impl
 
 
-def _viewer_context_from_jwt_header(request: HttpRequest) -> ViewerContext | None:
+def _viewer_context_from_jwt_header(request: HttpRequest) -> ViewerContext | ViewerContextV2 | None:
     header_value = request.META.get("HTTP_X_VIEWER_CONTEXT")
     if not header_value:
         return None
@@ -94,10 +95,16 @@ def _viewer_context_from_request(request: HttpRequest) -> ViewerContext:
 
     # An agent token is a non-user actor: the request user is anonymous, so read the
     # delegating user it acts on behalf of from the credential.
-    superuser = auth.superuser if isinstance(auth, AuthenticatedToken) else None
     if auth is not None and is_agent_auth(auth):
-        actor = Actor(type=ActorType.AGENT, delegated_user_id=auth.user_id, superuser=superuser)
+        actor_type = ActorType.AGENT
+        user_id = auth.user_id
     else:
-        actor = Actor(type=ActorType.USER, id=user_id, superuser=superuser)
+        actor_type = ActorType.USER
 
-    return ViewerContext(actor=actor, organization_id=organization_id)
+    return ViewerContext(
+        user_id=user_id,
+        organization_id=organization_id,
+        actor_type=actor_type,
+        token=auth,
+        superuser=auth.superuser if isinstance(auth, AuthenticatedToken) else None,
+    )

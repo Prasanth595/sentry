@@ -25,7 +25,7 @@ from sentry.tasks.base import instrumented_task
 from sentry.taskworker.namespaces import seer_tasks
 from sentry.utils import json, metrics
 from sentry.utils.hashlib import md5_text
-from sentry.viewer_context import Actor, ActorType, ViewerContext, viewer_context_scope
+from sentry.viewer_context import ActorType, ViewerContext, viewer_context_scope
 
 logger = logging.getLogger(__name__)
 
@@ -197,7 +197,8 @@ def _judge_issue(issue_data_id: int, event_id: str) -> None:
     )
     with viewer_context_scope(
         ViewerContext(
-            actor=Actor(type=ActorType.SYSTEM), organization_id=issue_data.organization_id
+            organization_id=issue_data.organization_id,
+            actor_type=ActorType.SYSTEM,
         )
     ):
         response = make_llm_generate_request(

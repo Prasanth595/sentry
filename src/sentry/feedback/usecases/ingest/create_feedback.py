@@ -34,7 +34,7 @@ from sentry.utils import json, metrics
 from sentry.utils.outcomes import Outcome, track_outcome
 from sentry.utils.projectflags import set_project_flag_and_signal
 from sentry.utils.safe import get_path
-from sentry.viewer_context import Actor, ActorType, ViewerContext, viewer_context_scope
+from sentry.viewer_context import ActorType, ViewerContext, viewer_context_scope
 
 logger = logging.getLogger(__name__)
 
@@ -273,9 +273,7 @@ def create_feedback_issue(
     feedback_message = event["contexts"]["feedback"]["message"]
 
     _seer_vc = ViewerContext(
-        actor=Actor(type=ActorType.SYSTEM),
-        organization_id=project.organization_id,
-        project_id=project.id,
+        organization_id=project.organization_id, project_id=project.id, actor_type=ActorType.SYSTEM
     )
     viewer_context = SeerViewerContext(organization_id=project.organization_id)
 

@@ -54,7 +54,6 @@ from sentry.testutils.pytest.fixtures import django_db_all
 from sentry.types.group import GroupSubStatus
 from sentry.utils.concurrent import ContextPropagatingThreadPoolExecutor
 from sentry.viewer_context import (
-    Actor,
     ActorType,
     ViewerContext,
     decode_viewer_context,
@@ -1053,7 +1052,8 @@ def test_detect_function_change_points(
         key="viewer-context-test-secret",
     )
     assert viewer_context == ViewerContext(
-        actor=Actor(type=ActorType.SYSTEM), organization_id=project.organization_id
+        organization_id=project.organization_id,
+        actor_type=ActorType.SYSTEM,
     )
 
 
@@ -1103,14 +1103,16 @@ def test_detect_function_change_points_groups_viewer_context_by_organization(
         (
             [project.id],
             ViewerContext(
-                actor=Actor(type=ActorType.SYSTEM), organization_id=project.organization_id
+                organization_id=project.organization_id,
+                actor_type=ActorType.SYSTEM,
             ),
             SeerViewerContext(organization_id=project.organization_id),
         ),
         (
             [other_project.id],
             ViewerContext(
-                actor=Actor(type=ActorType.SYSTEM), organization_id=other_project.organization_id
+                organization_id=other_project.organization_id,
+                actor_type=ActorType.SYSTEM,
             ),
             SeerViewerContext(organization_id=other_project.organization_id),
         ),

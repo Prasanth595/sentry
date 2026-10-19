@@ -29,6 +29,8 @@ from sentry.utils import json
 from sentry.utils.arroyo_producer import SingletonProducer, get_arroyo_producer
 from sentry.viewer_context import (
     ViewerContext,
+    ViewerContextV2,
+    deserialize_viewer_context,
     get_viewer_context,
     observe_viewer_context_propagation,
     viewer_context_scope,
@@ -123,10 +125,10 @@ class ViewerContextHook:
 
     def on_execute(self, headers: dict[str, str]) -> contextlib.AbstractContextManager[None]:
         raw = headers.get(self.HEADER)
-        ctx: ViewerContext | None = None
+        ctx: ViewerContext | ViewerContextV2 | None = None
         if raw:
             try:
-                ctx = ViewerContext.deserialize(orjson.loads(raw))
+                ctx = deserialize_viewer_context(orjson.loads(raw))
             except (orjson.JSONDecodeError, TypeError, KeyError, AttributeError):
                 logger.exception("Failed to deserialize viewer context header")
         # Only `expected=True` when dispatch actually sent the header. That distinguishes

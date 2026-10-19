@@ -26,13 +26,7 @@ from sentry.utils.sdk_crashes.sdk_crash_detection_config import (
     SDKCrashDetectionConfig,
     build_sdk_crash_detection_configs,
 )
-from sentry.viewer_context import (
-    Actor,
-    ActorType,
-    ViewerContext,
-    get_viewer_context,
-    viewer_context_scope,
-)
+from sentry.viewer_context import ActorType, ViewerContext, get_viewer_context, viewer_context_scope
 
 
 @override_options(
@@ -112,14 +106,14 @@ class SDKCrashReporterTest(TestCase):
         source_project = self.create_project()
         destination_project = self.create_project()
         source_context = ViewerContext(
-            actor=Actor(type=ActorType.SYSTEM),
             organization_id=source_project.organization_id,
             project_id=source_project.id,
+            actor_type=ActorType.SYSTEM,
         )
         destination_context = ViewerContext(
-            actor=Actor(type=ActorType.SYSTEM),
             organization_id=destination_project.organization_id,
             project_id=destination_project.id,
+            actor_type=ActorType.SYSTEM,
         )
         reported_event = MagicMock(spec=Event)
 

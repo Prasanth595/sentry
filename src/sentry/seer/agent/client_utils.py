@@ -512,10 +512,10 @@ def get_proxy_headers() -> dict[str, str] | None:
     Seer → Sentry path (``X-Viewer-Context`` JWT, no separate signature
     header), so Sentry's middleware decodes both with the same code path.
     """
-    from sentry.viewer_context import encode_viewer_context, get_viewer_context
+    from sentry.viewer_context import ViewerContext, encode_viewer_context, get_viewer_context
 
     ctx = get_viewer_context()
-    if ctx is None or ctx.actor.user_id is None:
+    if ctx is None or (isinstance(ctx, ViewerContext) and ctx.user_id is None):
         return None
 
     if not settings.SEER_API_SHARED_SECRET:

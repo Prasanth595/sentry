@@ -40,7 +40,7 @@ from sentry.testutils.silo import assume_test_silo_mode
 from sentry.types.activity import ActivityType
 from sentry.users.models.user_option import UserOption
 from sentry.users.models.useremail import UserEmail
-from sentry.viewer_context import Actor, ActorType, ViewerContext, get_viewer_context
+from sentry.viewer_context import ActorType, ViewerContext, get_viewer_context
 
 
 class InvalidateReleaseCacheTest(TestCase):
@@ -349,9 +349,10 @@ class ResolvedInCommitTest(TestCase):
         assert GroupAssignee.objects.filter(group=group, user_id=user.id).exists()
         assert captured_contexts == [
             ViewerContext(
-                actor=Actor(type=ActorType.USER, id=user.id),
                 organization_id=group.organization.id,
                 project_id=group.project_id,
+                user_id=user.id,
+                actor_type=ActorType.USER,
             )
         ]
 
@@ -487,9 +488,10 @@ class ResolvedInPullRequestTest(TestCase):
         assert GroupAssignee.objects.filter(group=group, user_id=user.id).exists()
         assert captured_contexts == [
             ViewerContext(
-                actor=Actor(type=ActorType.USER, id=user.id),
                 organization_id=group.organization.id,
                 project_id=group.project_id,
+                user_id=user.id,
+                actor_type=ActorType.USER,
             )
         ]
 

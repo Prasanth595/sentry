@@ -29,7 +29,7 @@ from sentry.taskworker.adapters import ViewerContextHook
 from sentry.testutils.cases import TestCase
 from sentry.testutils.helpers.datetime import freeze_time
 from sentry.testutils.silo import cell_silo_test
-from sentry.viewer_context import Actor, ActorType, ViewerContext, decode_viewer_context
+from sentry.viewer_context import ActorType, ViewerContext, decode_viewer_context
 
 
 @cell_silo_test
@@ -81,7 +81,8 @@ class ForwardPrToSeerTaskTest(TestCase):
             key="viewer-context-test-secret",
         )
         assert viewer_context == ViewerContext(
-            actor=Actor(type=ActorType.INTEGRATION), organization_id=self.organization.id
+            organization_id=self.organization.id,
+            actor_type=ActorType.INTEGRATION,
         )
 
     @patch("sentry.pr_metrics.tasks.forward_pr_to_seer_judge")

@@ -25,7 +25,7 @@ from sentry.silo.base import cell_silo_function
 from sentry.users.models.user import User
 from sentry.users.services.user import RpcUser
 from sentry.users.services.user.service import user_service
-from sentry.viewer_context import ActorType, get_viewer_context
+from sentry.viewer_context import ActorType, ViewerContextV2, get_viewer_context
 
 
 def create_audit_entry(
@@ -101,7 +101,14 @@ def create_audit_entry_from_user(
 
     if agent_delegation is None:
         viewer_context = get_viewer_context()
-        if viewer_context is not None and viewer_context.actor.type == ActorType.AGENT:
+        actor_type = (
+            viewer_context.actor.type
+            if isinstance(viewer_context, ViewerContextV2)
+            else viewer_context.actor_type
+            if viewer_context is not None
+            else None
+        )
+        if actor_type == ActorType.AGENT:
             agent_delegation = SEER_AGENT_DELEGATION
 
     data = dict(data)

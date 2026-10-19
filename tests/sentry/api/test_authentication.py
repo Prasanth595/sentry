@@ -45,7 +45,13 @@ from sentry.testutils.silo import assume_test_silo_mode, control_silo_test, no_s
 from sentry.types.token import AuthTokenType
 from sentry.utils import jwt
 from sentry.utils.security.orgauthtoken_token import hash_token
-from sentry.viewer_context import Actor, ActorType, ViewerContext, encode_viewer_context
+from sentry.viewer_context import (
+    Actor,
+    ActorType,
+    ViewerContext,
+    ViewerContextV2,
+    encode_viewer_context,
+)
 
 
 def _drf_request(data: dict[str, str] | None = None, path: str = "/example") -> Request:
@@ -1088,20 +1094,6 @@ class TestAuthenticateHeader:
 class TestViewerContextAuthentication(TestCase):
     SHARED_SECRET = "test-seer-api-shared-secret"
 
-    @override_settings(SEER_API_SHARED_SECRET=SHARED_SECRET)
-    def test_service_account_id_does_not_authenticate_as_same_id_user(self) -> None:
-        context = encode_viewer_context(
-            ViewerContext(
-                organization_id=self.organization.id,
-                actor=Actor(type=ActorType.SERVICE_ACCOUNT, id=self.user.id),
-            ),
-            key=self.SHARED_SECRET,
-        )
-        request = self._make_request(viewer_context=context)
-        with mock.patch("sentry.api.authentication.user_service.get_user") as get_user:
-            assert ViewerContextAuthentication().authenticate(request) is None
-        get_user.assert_not_called()
-
     def _make_request(
         self,
         viewer_context: str | None = None,
@@ -1114,7 +1106,7 @@ class TestViewerContextAuthentication(TestCase):
     @override_settings(SEER_API_SHARED_SECRET=SHARED_SECRET)
     def test_valid_viewer_context_authenticates(self) -> None:
         context = encode_viewer_context(
-            ViewerContext(actor=Actor(type=ActorType.USER, id=self.user.id)),
+            ViewerContext(user_id=self.user.id, actor_type=ActorType.USER),
             key=self.SHARED_SECRET,
         )
 
@@ -1144,7 +1136,7 @@ class TestViewerContextAuthentication(TestCase):
     @override_settings(SEER_API_SHARED_SECRET=SHARED_SECRET)
     def test_unknown_user_id_returns_none(self) -> None:
         context = encode_viewer_context(
-            ViewerContext(actor=Actor(type=ActorType.USER, id=999999999)),
+            ViewerContext(user_id=999999999, actor_type=ActorType.USER),
             key=self.SHARED_SECRET,
         )
 
@@ -1156,7 +1148,7 @@ class TestViewerContextAuthentication(TestCase):
     @override_settings(SEER_API_SHARED_SECRET=SHARED_SECRET)
     def test_missing_user_id_returns_none(self) -> None:
         context = encode_viewer_context(
-            ViewerContext(actor=Actor(type=ActorType.SYSTEM)),
+            ViewerContext(actor_type=ActorType.SYSTEM),
             key=self.SHARED_SECRET,
         )
 
@@ -1168,7 +1160,7 @@ class TestViewerContextAuthentication(TestCase):
     @override_settings(SEER_API_SHARED_SECRET="")
     def test_empty_secret_returns_none(self) -> None:
         context = encode_viewer_context(
-            ViewerContext(actor=Actor(type=ActorType.USER, id=self.user.id)),
+            ViewerContext(user_id=self.user.id, actor_type=ActorType.USER),
             key=self.SHARED_SECRET,
         )
 
@@ -1179,7 +1171,7 @@ class TestViewerContextAuthentication(TestCase):
 
     @override_settings(SEER_API_SHARED_SECRET=SHARED_SECRET)
     def test_jwt_wrong_key_returns_none(self) -> None:
-        vc = ViewerContext(actor=Actor(type=ActorType.USER, id=self.user.id))
+        vc = ViewerContext(user_id=self.user.id, actor_type=ActorType.USER)
         token = encode_viewer_context(vc, key="wrong-key")
 
         request = self._make_request(viewer_context=token)
@@ -1192,7 +1184,7 @@ class TestViewerContextAuthentication(TestCase):
         self.user.update(is_suspended=True)
 
         context = encode_viewer_context(
-            ViewerContext(actor=Actor(type=ActorType.USER, id=self.user.id)),
+            ViewerContext(user_id=self.user.id, actor_type=ActorType.USER),
             key=self.SHARED_SECRET,
         )
 
@@ -1200,3 +1192,28 @@ class TestViewerContextAuthentication(TestCase):
         result = ViewerContextAuthentication().authenticate(request)
 
         assert result is None
+
+    @override_settings(SEER_API_SHARED_SECRET=SHARED_SECRET)
+    def test_service_account_id_is_not_a_user(self) -> None:
+        context = ViewerContextV2(
+            actor=Actor(type=ActorType.SERVICE_ACCOUNT, id=self.user.id),
+            organization_id=self.organization.id,
+        )
+        request = self._make_request(
+            viewer_context=encode_viewer_context(context, key=self.SHARED_SECRET)
+        )
+        assert ViewerContextAuthentication().authenticate(request) is None
+
+    @override_settings(SEER_API_SHARED_SECRET=SHARED_SECRET)
+    def test_agent_authenticates_delegate_not_agent_id(self) -> None:
+        agent_user = self.create_user()
+        context = ViewerContextV2(
+            actor=Actor(type=ActorType.AGENT, id=agent_user.id, delegated_user_id=self.user.id),
+            organization_id=self.organization.id,
+        )
+        request = self._make_request(
+            viewer_context=encode_viewer_context(context, key=self.SHARED_SECRET)
+        )
+        result = ViewerContextAuthentication().authenticate(request)
+        assert result is not None
+        assert result[0].id == self.user.id
