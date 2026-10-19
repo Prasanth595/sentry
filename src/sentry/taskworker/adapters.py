@@ -29,7 +29,6 @@ from sentry.utils import json
 from sentry.utils.arroyo_producer import SingletonProducer, get_arroyo_producer
 from sentry.viewer_context import (
     ViewerContext,
-    ViewerContextV2,
     deserialize_viewer_context,
     get_viewer_context,
     observe_viewer_context_propagation,
@@ -125,7 +124,7 @@ class ViewerContextHook:
 
     def on_execute(self, headers: dict[str, str]) -> contextlib.AbstractContextManager[None]:
         raw = headers.get(self.HEADER)
-        ctx: ViewerContext | ViewerContextV2 | None = None
+        ctx: ViewerContext | None = None
         if raw:
             try:
                 ctx = deserialize_viewer_context(orjson.loads(raw))

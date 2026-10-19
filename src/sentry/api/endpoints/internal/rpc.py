@@ -18,8 +18,9 @@ from sentry.hybridcloud.rpc.service import (
 from sentry.hybridcloud.rpc.sig import SerializableFunctionValueException
 from sentry.utils.env import in_test_environment
 from sentry.viewer_context import (
+    Actor,
+    ActorType,
     ViewerContext,
-    ViewerContextV2,
     deserialize_viewer_context,
     observe_viewer_context_propagation,
     viewer_context_scope,
@@ -71,7 +72,7 @@ class InternalRpcServiceEndpoint(Endpoint):
 
         meta = request.data.get("meta") or {}
         vc_data = meta.get("viewer_context")
-        vc: ViewerContext | ViewerContextV2 = ViewerContext()
+        vc: ViewerContext = ViewerContext(actor=Actor(type=ActorType.UNKNOWN))
         if vc_data:
             try:
                 vc = deserialize_viewer_context(vc_data)
@@ -80,7 +81,7 @@ class InternalRpcServiceEndpoint(Endpoint):
                 raise ParseError from e
 
         # Observe what the caller actually sent, not the empty default we fall back to.
-        # `vc` is always non-None (defaulted to ViewerContext()), so observing inside
+        # `vc` is always non-None (defaulted to ViewerContext(actor=Actor(type=ActorType.UNKNOWN))), so observing inside
         # the scope below would always see actor_type=unknown and never trigger the
         # missing-VC signal.
         observe_viewer_context_propagation(

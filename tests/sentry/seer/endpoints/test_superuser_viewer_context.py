@@ -14,7 +14,6 @@ from sentry.viewer_context import (
     Actor,
     ActorType,
     ViewerContext,
-    ViewerContextV2,
     encode_viewer_context,
 )
 
@@ -32,12 +31,14 @@ class SuperuserViewerContextTest(APITestCase):
     def _viewer_header(self, expires_at: int | None) -> str:
         return encode_viewer_context(
             ViewerContext(
+                actor=Actor(
+                    type=ActorType.USER,
+                    id=self.employee.id,
+                    superuser=SuperuserAccess(expires_at=expires_at)
+                    if expires_at is not None
+                    else None,
+                ),
                 organization_id=self.organization.id,
-                user_id=self.employee.id,
-                actor_type=ActorType.USER,
-                superuser=SuperuserAccess(expires_at=expires_at)
-                if expires_at is not None
-                else None,
             ),
             key=SECRET,
         )
@@ -78,7 +79,7 @@ class SuperuserViewerContextTest(APITestCase):
     def _assert_member_callback_access(self, role: str, write_status: int) -> None:
         self.create_member(user=self.employee, organization=self.organization, role=role)
         resolved = self._approved_chat_context()
-        assert resolved.superuser is None
+        assert resolved.actor.superuser is None
 
         client = APIClient()
         client.credentials(HTTP_X_VIEWER_CONTEXT=encode_viewer_context(resolved, key=SECRET))
@@ -104,10 +105,12 @@ class SuperuserViewerContextTest(APITestCase):
             resolved = self._approved_chat_context()
             assert self.client.put(self.path, {}, format="json").status_code == browser_write_status
         assert resolved.organization_id == self.organization.id
-        assert resolved.superuser is not None
-        assert type(resolved.superuser.expires_at) is int
-        assert 0 < resolved.superuser.expires_at - timezone.now().timestamp() <= 300
-        assert resolved.superuser.dict() == {"expires_at": resolved.superuser.expires_at}
+        assert resolved.actor.superuser is not None
+        assert type(resolved.actor.superuser.expires_at) is int
+        assert 0 < resolved.actor.superuser.expires_at - timezone.now().timestamp() <= 300
+        assert resolved.actor.superuser.dict() == {
+            "expires_at": resolved.actor.superuser.expires_at
+        }
 
         client = APIClient()
         client.credentials(HTTP_X_VIEWER_CONTEXT=encode_viewer_context(resolved, key=SECRET))
@@ -127,7 +130,7 @@ class SuperuserViewerContextTest(APITestCase):
         assert client.get(self.path).status_code == 401
 
     def test_v2_actor_elevation_is_read_only_and_organization_bound(self) -> None:
-        context = ViewerContextV2(
+        context = ViewerContext(
             actor=Actor(
                 type=ActorType.USER,
                 id=self.employee.id,
