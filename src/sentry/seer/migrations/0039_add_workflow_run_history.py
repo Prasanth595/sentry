@@ -57,6 +57,19 @@ class Migration(CheckedMigration):
             name="status",
             field=models.CharField(max_length=16, null=True),
         ),
+        migrations.AddIndex(
+            model_name="seerworkflowrun",
+            index=models.Index(
+                fields=["organization", "config_id_at_creation", "-date_added", "-id"],
+                name="seer_run_org_cfg_history_idx",
+            ),
+        ),
+        migrations.AddIndex(
+            model_name="seerworkflowrun",
+            index=models.Index(
+                fields=["organization", "-date_added", "-id"], name="seer_run_org_history_idx"
+            ),
+        ),
         migrations.AddConstraint(
             model_name="seerworkflowrun",
             constraint=models.UniqueConstraint(
