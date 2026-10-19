@@ -13,6 +13,7 @@ from urllib3 import BaseHTTPResponse, HTTPConnectionPool, Retry
 from sentry.net.http import connection_from_url
 from sentry.utils import metrics
 from sentry.viewer_context import (
+    ActorType,
     ViewerContext,
     encode_viewer_context,
     get_viewer_context,
@@ -91,6 +92,12 @@ def _resolve_viewer_context(
         )
         return explicit_vc
 
+    if vc.actor_type == ActorType.SERVICE_ACCOUNT and (
+        explicit_vc.user_id is not None
+        or explicit_vc.organization_id not in (None, vc.organization_id)
+    ):
+        raise ValueError("Cannot override a service-account viewer with a legacy viewer context")
+
     has_mismatch = False
     org_id = vc.organization_id
     user_id = vc.user_id
@@ -137,6 +144,7 @@ def _resolve_viewer_context(
             vc,
             organization_id=org_id,
             user_id=user_id,
+            actor=None if vc.actor_type == ActorType.USER else vc.actor,
             project_id=None,
             token=None,
             superuser=None,

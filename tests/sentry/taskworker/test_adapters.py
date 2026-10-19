@@ -13,7 +13,13 @@ from sentry.taskworker.adapters import (
     ViewerContextHook,
     make_producer,
 )
-from sentry.viewer_context import ActorType, ViewerContext, get_viewer_context, viewer_context_scope
+from sentry.viewer_context import (
+    Actor,
+    ActorType,
+    ViewerContext,
+    get_viewer_context,
+    viewer_context_scope,
+)
 
 
 @pytest.mark.django_db
@@ -152,12 +158,18 @@ class TestViewerContextHook:
             assert ctx.user_id is None
             assert ctx.actor_type == ActorType.INTEGRATION
 
-    def test_roundtrip(self) -> None:
+    @pytest.mark.parametrize(
+        "original",
+        [
+            ViewerContext(organization_id=123, user_id=456, actor_type=ActorType.USER),
+            ViewerContext(organization_id=123, actor=Actor(type=ActorType.SERVICE_ACCOUNT, id=456)),
+        ],
+    )
+    def test_roundtrip(self, original: ViewerContext) -> None:
         """Dispatch then execute produces the same ViewerContext."""
         hook = ViewerContextHook()
         headers: dict[str, str] = {}
 
-        original = ViewerContext(organization_id=123, user_id=456, actor_type=ActorType.USER)
         with viewer_context_scope(original):
             hook.on_dispatch(headers)
 
@@ -167,12 +179,23 @@ class TestViewerContextHook:
             assert restored.organization_id == original.organization_id
             assert restored.user_id == original.user_id
             assert restored.actor_type == original.actor_type
+            assert restored.actor == original.actor
 
     def test_on_execute_malformed_json(self) -> None:
         hook = ViewerContextHook()
         headers = {"sentry-viewer-context": "not-valid-json{"}
         cm = hook.on_execute(headers)
         assert isinstance(cm, contextlib.nullcontext)
+
+    def test_invalid_actor_prevents_execution_without_identity(self) -> None:
+        hook = ViewerContextHook()
+        headers = {
+            "sentry-viewer-context": orjson.dumps(
+                {"organization_id": 42, "actor": {"type": "service_account"}}
+            ).decode(),
+        }
+        with pytest.raises(ValueError):
+            hook.on_execute(headers)
 
     def test_on_execute_non_dict_json(self) -> None:
         hook = ViewerContextHook()

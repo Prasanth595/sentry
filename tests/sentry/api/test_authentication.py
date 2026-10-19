@@ -45,7 +45,7 @@ from sentry.testutils.silo import assume_test_silo_mode, control_silo_test, no_s
 from sentry.types.token import AuthTokenType
 from sentry.utils import jwt
 from sentry.utils.security.orgauthtoken_token import hash_token
-from sentry.viewer_context import ActorType, ViewerContext, encode_viewer_context
+from sentry.viewer_context import Actor, ActorType, ViewerContext, encode_viewer_context
 
 
 def _drf_request(data: dict[str, str] | None = None, path: str = "/example") -> Request:
@@ -1087,6 +1087,20 @@ class TestAuthenticateHeader:
 @no_silo_test
 class TestViewerContextAuthentication(TestCase):
     SHARED_SECRET = "test-seer-api-shared-secret"
+
+    @override_settings(SEER_API_SHARED_SECRET=SHARED_SECRET)
+    def test_service_account_id_does_not_authenticate_as_same_id_user(self) -> None:
+        context = encode_viewer_context(
+            ViewerContext(
+                organization_id=self.organization.id,
+                actor=Actor(type=ActorType.SERVICE_ACCOUNT, id=self.user.id),
+            ),
+            key=self.SHARED_SECRET,
+        )
+        request = self._make_request(viewer_context=context)
+        with mock.patch("sentry.api.authentication.user_service.get_user") as get_user:
+            assert ViewerContextAuthentication().authenticate(request) is None
+        get_user.assert_not_called()
 
     def _make_request(
         self,

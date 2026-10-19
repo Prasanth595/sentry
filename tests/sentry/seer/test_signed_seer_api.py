@@ -13,7 +13,13 @@ from sentry.seer.signed_seer_api import (
     make_signed_seer_api_request,
 )
 from sentry.types.superuser import SuperuserAccess
-from sentry.viewer_context import ActorType, ViewerContext, viewer_context_scope
+from sentry.viewer_context import (
+    Actor,
+    ActorType,
+    ViewerContext,
+    decode_viewer_context,
+    viewer_context_scope,
+)
 
 REQUEST_BODY = b'{"b": 12, "thing": "thing"}'
 PATH = "/v0/some/url"
@@ -217,6 +223,23 @@ def test_delete_grouping_records_uses_generic_metrics_endpoint(
 
 
 class TestResolveViewerContext:
+    @pytest.mark.django_db
+    def test_service_account_reaches_signed_header(self) -> None:
+        ctx = ViewerContext(organization_id=42, actor=Actor(type=ActorType.SERVICE_ACCOUNT, id=7))
+        with viewer_context_scope(ctx):
+            urlopen = run_test_case(viewer_context=SeerViewerContext(organization_id=42))
+        header = urlopen.call_args.kwargs["headers"]["X-Viewer-Context"]
+        assert decode_viewer_context(header, key="secret-one") == ctx
+
+    @pytest.mark.parametrize(
+        "explicit",
+        [SeerViewerContext(organization_id=43), SeerViewerContext(user_id=7)],
+    )
+    def test_service_account_rejects_legacy_identity_override(self, explicit) -> None:
+        ctx = ViewerContext(organization_id=42, actor=Actor(type=ActorType.SERVICE_ACCOUNT, id=7))
+        with viewer_context_scope(ctx), pytest.raises(ValueError, match="Cannot override"):
+            _resolve_viewer_context(explicit)
+
     def test_changing_viewer_strips_elevation(self) -> None:
         ctx = ViewerContext(
             organization_id=42,
@@ -303,6 +326,7 @@ class TestResolveViewerContext:
         assert result.organization_id == 42
         assert result.user_id == 99
         assert result.actor_type == ActorType.USER
+        assert result.actor == Actor(type=ActorType.USER, id=99)
 
     @patch("sentry.seer.signed_seer_api.metrics")
     @patch("sentry.seer.signed_seer_api.logger")

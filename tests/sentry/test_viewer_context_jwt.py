@@ -15,6 +15,7 @@ from sentry.testutils.outbox import outbox_runner
 from sentry.testutils.silo import assume_test_silo_mode
 from sentry.types.superuser import SuperuserAccess
 from sentry.viewer_context import (
+    Actor,
     ActorType,
     ViewerContext,
     decode_viewer_context,
@@ -71,6 +72,16 @@ class TestEncodeEarlyAdopterClaim(TestCase):
 
 
 class TestEncodeDecodeRoundtrip(TestCase):
+    @override_settings(SEER_API_SHARED_SECRET="test-secret-key")
+    def test_service_account_roundtrip(self):
+        vc = ViewerContext(organization_id=42, actor=Actor(type=ActorType.SERVICE_ACCOUNT, id=7))
+        token = encode_viewer_context(vc)
+        assert decode_viewer_context(token) == vc
+        claims = pyjwt.decode(token, options={"verify_signature": False})
+        assert claims["actor"] == {"type": "service_account", "id": 7}
+        assert "user_id" not in claims
+        assert "superuser" not in claims
+
     @override_settings(SEER_API_SHARED_SECRET="test-secret-key")
     def test_roundtrip(self):
         vc = ViewerContext(organization_id=42, user_id=7, actor_type=ActorType.USER)

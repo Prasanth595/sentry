@@ -43,10 +43,25 @@ https://www.notion.so/sentry/RFC-Unified-ViewerContext-via-ContextVar-32f8b10e4b
 
 class ActorType(enum.StrEnum):
     USER = "user"
+    SERVICE_ACCOUNT = "service_account"
     SYSTEM = "system"
     INTEGRATION = "integration"
     AGENT = "agent"
     UNKNOWN = "unknown"
+
+
+@dataclasses.dataclass(frozen=True)
+class Actor:
+    """Caller identity. IDs are scoped to the actor type, not shared with User IDs."""
+
+    type: ActorType
+    id: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.type, ActorType):
+            raise ValueError("Actor type must be an ActorType")
+        if type(self.id) is not int or self.id <= 0:
+            raise ValueError("Actor ID must be a positive integer")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -71,9 +86,37 @@ class ViewerContext:
     # NOT propagated across process/service boundaries.
     token: AuthenticatedToken | None = None
 
+    # Typed identity when known; user_id remains a human ID (including agent delegation).
+    actor: Actor | None = None
+
+    def __post_init__(self) -> None:
+        actor = self.actor
+        if actor is None:
+            if self.actor_type == ActorType.SERVICE_ACCOUNT:
+                raise ValueError("Service-account contexts require an actor")
+            # An agent's user_id is its delegating human, not the agent's identity.
+            if self.actor_type == ActorType.USER and self.user_id is not None:
+                object.__setattr__(self, "actor", Actor(type=ActorType.USER, id=self.user_id))
+            return
+
+        if self.actor_type not in (ActorType.UNKNOWN, actor.type):
+            raise ValueError("Actor type conflicts with actor_type")
+        if actor.type == ActorType.USER:
+            if self.user_id is not None and self.user_id != actor.id:
+                raise ValueError("User actor ID conflicts with user_id")
+            object.__setattr__(self, "user_id", actor.id)
+        elif actor.type == ActorType.SERVICE_ACCOUNT:
+            if self.organization_id is None:
+                raise ValueError("Service-account contexts require an organization")
+            if self.user_id is not None or self.superuser is not None:
+                raise ValueError("Service-account contexts cannot carry a user or superuser access")
+        object.__setattr__(self, "actor_type", actor.type)
+
     def serialize(self) -> dict[str, Any]:
         """Serialize to a dict for cross-service headers (e.g. X-Viewer-Context)."""
         result: dict[str, Any] = {"actor_type": self.actor_type.value}
+        if self.actor is not None:
+            result["actor"] = {"type": self.actor.type.value, "id": self.actor.id}
         if self.organization_id is not None:
             result["organization_id"] = self.organization_id
         if self.project_id is not None:
@@ -92,11 +135,22 @@ class ViewerContext:
             actor_type = ActorType(data.get("actor_type", "unknown"))
         except ValueError:
             actor_type = ActorType.UNKNOWN
+        actor = None
+        if "actor" in data:
+            actor_data = data["actor"]
+            if not isinstance(actor_data, dict):
+                raise ValueError("Actor must be an object")
+            if "type" not in actor_data or "id" not in actor_data:
+                raise ValueError("Actor requires a type and ID")
+            actor = Actor(type=ActorType(actor_data["type"]), id=actor_data["id"])
+            if data.get("actor_type", actor.type.value) != actor.type.value:
+                raise ValueError("Actor type conflicts with actor_type")
         return cls(
             organization_id=data.get("organization_id"),
             project_id=data.get("project_id"),
             user_id=data.get("user_id"),
             actor_type=actor_type,
+            actor=actor,
             superuser=SuperuserAccess.parse_obj(superuser) if superuser is not None else None,
         )
 

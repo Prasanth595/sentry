@@ -11,7 +11,7 @@ from rest_framework.exceptions import ErrorDetail
 from sentry.hybridcloud.rpc.service import generate_request_signature
 from sentry.organizations.services.organization import RpcUserOrganizationContext
 from sentry.testutils.cases import APITestCase
-from sentry.viewer_context import ActorType, ViewerContext, get_viewer_context
+from sentry.viewer_context import Actor, ActorType, ViewerContext, get_viewer_context
 
 
 @override_settings(RPC_SHARED_SECRET=["a-long-value-that-is-hard-to-guess"])
@@ -231,8 +231,23 @@ class RpcServiceEndpointTest(APITestCase):
         assert ctx.actor_type == ActorType.UNKNOWN
 
     def test_agent_viewer_context_roundtrip_through_meta(self) -> None:
-        """Agent ViewerContext set on the sending side arrives on the receiving side."""
-        organization = self.create_organization()
+        self._assert_actor_roundtrip(
+            ViewerContext(
+                organization_id=self.organization.id, user_id=42, actor_type=ActorType.AGENT
+            )
+        )
+
+    def test_service_account_viewer_context_roundtrip_through_meta(self) -> None:
+        self._assert_actor_roundtrip(
+            ViewerContext(
+                organization_id=self.organization.id,
+                actor=Actor(type=ActorType.SERVICE_ACCOUNT, id=42),
+            )
+        )
+
+    def _assert_actor_roundtrip(self, ctx: ViewerContext) -> None:
+        """ViewerContext set on the sending side arrives on the receiving side."""
+        organization = self.organization
         captured_contexts: list[ViewerContext | None] = []
 
         original_dispatch = __import__(
@@ -244,7 +259,6 @@ class RpcServiceEndpointTest(APITestCase):
             return original_dispatch(*args, **kwargs)
 
         # Simulate what _send_to_remote_silo builds when ViewerContext is set
-        ctx = ViewerContext(organization_id=organization.id, user_id=42, actor_type=ActorType.AGENT)
         path = self._get_path("organization", "get_organization_by_id")
         data = {
             "args": {"id": organization.id},
@@ -264,3 +278,4 @@ class RpcServiceEndpointTest(APITestCase):
         assert restored.organization_id == ctx.organization_id
         assert restored.user_id == ctx.user_id
         assert restored.actor_type == ctx.actor_type
+        assert restored.actor == ctx.actor

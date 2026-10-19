@@ -9,6 +9,7 @@ import pytest
 
 from sentry.types.superuser import SuperuserAccess
 from sentry.viewer_context import (
+    Actor,
     ActorType,
     ViewerContext,
     get_viewer_context,
@@ -27,6 +28,69 @@ class TestActorType:
 
 
 class TestViewerContext:
+    def test_actor_identity_roundtrip(self):
+        ctx = ViewerContext(
+            organization_id=10,
+            actor=Actor(type=ActorType.SERVICE_ACCOUNT, id=42),
+        )
+        assert ctx.serialize() == {
+            "organization_id": 10,
+            "actor_type": "service_account",
+            "actor": {"type": "service_account", "id": 42},
+        }
+        assert ViewerContext.deserialize(ctx.serialize()) == ctx
+        assert ctx.user_id is None
+        assert ctx.actor != Actor(type=ActorType.USER, id=42)
+
+    @pytest.mark.parametrize("actor_type", [ActorType.USER, ActorType.AGENT, ActorType.SYSTEM])
+    def test_legacy_human_identity_is_preserved(self, actor_type):
+        ctx = ViewerContext.deserialize({"actor_type": actor_type.value, "user_id": 42})
+        assert ctx.actor_type == actor_type
+        assert ctx.user_id == 42
+        assert ViewerContext.deserialize(ctx.serialize()) == ctx
+
+    def test_agent_delegate_is_not_actor_id(self):
+        ctx = ViewerContext(user_id=42, actor_type=ActorType.AGENT)
+        assert ctx.actor is None
+
+    def test_user_actor_supports_legacy_readers(self):
+        ctx = ViewerContext(actor=Actor(type=ActorType.USER, id=42))
+        assert ctx.user_id == 42
+        assert ctx.actor_type == ActorType.USER
+        assert ctx.serialize()["user_id"] == 42
+        assert ctx == ViewerContext(user_id=42, actor_type=ActorType.USER)
+
+    @pytest.mark.parametrize(
+        "data",
+        [
+            {"actor": None},
+            {"actor": {}},
+            {"actor": {"type": "service_account"}},
+            {"actor": {"type": "future_actor", "id": 42}},
+            {"actor": {"type": "service_account", "id": True}},
+            {"actor": {"type": "service_account", "id": "42"}},
+            {"actor": {"type": "service_account", "id": 0}},
+            {"actor": {"type": "user", "id": 42}, "user_id": 43},
+            {"actor": {"type": "service_account", "id": 42}, "actor_type": "user"},
+            {"actor": {"type": "service_account", "id": 42}, "actor_type": "future_actor"},
+            {"actor": {"type": "service_account", "id": 42}, "user_id": 42},
+            {
+                "actor": {"type": "service_account", "id": 42},
+                "superuser": {"expires_at": 1234567890},
+            },
+            {"actor_type": "service_account"},
+            {"organization_id": None, "actor": {"type": "service_account", "id": 42}},
+        ],
+    )
+    def test_invalid_actor_cannot_fall_back_to_legacy_identity(self, data):
+        with pytest.raises(ValueError):
+            ViewerContext.deserialize({"organization_id": 10, **data})
+
+    def test_replacing_user_id_cannot_leave_stale_actor(self):
+        ctx = ViewerContext(user_id=42, actor_type=ActorType.USER)
+        with pytest.raises(ValueError, match="User actor ID conflicts"):
+            dataclasses.replace(ctx, user_id=43)
+
     @pytest.mark.parametrize(
         "superuser",
         [
