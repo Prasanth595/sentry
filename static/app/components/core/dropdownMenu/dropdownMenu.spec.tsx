@@ -256,6 +256,115 @@ describe('DropdownMenu', () => {
     );
   });
 
+  it('filters a searchable submenu and focuses its search field', async () => {
+    const onAction = jest.fn();
+    render(
+      <DropdownMenu
+        triggerLabel="Projects"
+        items={[
+          {
+            key: 'all-projects',
+            label: 'All Projects',
+            submenu: {title: 'All Projects', search: {placeholder: 'Search projects'}},
+            children: [
+              {
+                key: 'my-projects',
+                label: 'My Projects',
+                children: [
+                  {key: 'javascript', label: 'javascript'},
+                  {key: 'sentry', label: 'sentry', onAction},
+                ],
+              },
+            ],
+          },
+        ]}
+      />
+    );
+
+    await userEvent.click(screen.getByRole('button', {name: 'Projects'}));
+    await userEvent.hover(screen.getByRole('menuitemradio', {name: 'All Projects'}));
+
+    const search = screen.getByRole('textbox', {name: 'Search projects'});
+    expect(search).toHaveFocus();
+    expect(screen.getByRole('menuitemradio', {name: 'javascript'})).toBeInTheDocument();
+
+    await userEvent.type(search, 'sentry');
+    expect(
+      screen.queryByRole('menuitemradio', {name: 'javascript'})
+    ).not.toBeInTheDocument();
+    await userEvent.keyboard('{ArrowDown}');
+    expect(screen.getByRole('menuitemradio', {name: 'sentry'})).toHaveFocus();
+    await userEvent.keyboard('{Enter}');
+    expect(onAction).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears a searchable submenu when it closes', async () => {
+    render(
+      <DropdownMenu
+        triggerLabel="Projects"
+        items={[
+          {
+            key: 'all-projects',
+            label: 'All Projects',
+            submenu: {search: {placeholder: 'Search projects'}},
+            children: [
+              {key: 'javascript', label: 'javascript'},
+              {key: 'sentry', label: 'sentry'},
+            ],
+          },
+        ]}
+      />
+    );
+
+    await userEvent.click(screen.getByRole('button', {name: 'Projects'}));
+    await userEvent.hover(screen.getByRole('menuitemradio', {name: 'All Projects'}));
+    await userEvent.type(
+      screen.getByRole('textbox', {name: 'Search projects'}),
+      'sentry'
+    );
+    expect(
+      screen.queryByRole('menuitemradio', {name: 'javascript'})
+    ).not.toBeInTheDocument();
+
+    await userEvent.keyboard('{Escape}');
+    await userEvent.click(screen.getByRole('button', {name: 'Projects'}));
+    await userEvent.hover(screen.getByRole('menuitemradio', {name: 'All Projects'}));
+
+    expect(screen.getByRole('textbox', {name: 'Search projects'})).toHaveValue('');
+    expect(screen.getByRole('menuitemradio', {name: 'javascript'})).toBeInTheDocument();
+  });
+
+  it('keeps a searchable submenu open when moving the search caret left', async () => {
+    render(
+      <DropdownMenu
+        triggerLabel="Projects"
+        items={[
+          {
+            key: 'all-projects',
+            label: 'All Projects',
+            submenu: {search: {placeholder: 'Search projects'}},
+            children: [{key: 'sentry', label: 'sentry'}],
+          },
+        ]}
+      />
+    );
+
+    await userEvent.click(screen.getByRole('button', {name: 'Projects'}));
+    await userEvent.hover(screen.getByRole('menuitemradio', {name: 'All Projects'}));
+
+    const search = screen.getByRole('textbox', {
+      name: 'Search projects',
+    }) as HTMLInputElement;
+    await userEvent.type(search, 'sentry');
+    search.setSelectionRange(3, 3);
+    await userEvent.keyboard('{ArrowLeft}');
+
+    expect(search).toHaveFocus();
+    expect(search).toHaveValue('sentry');
+    expect(search).toHaveProperty('selectionStart', 2);
+    expect(screen.getByRole('menuitemradio', {name: 'sentry'})).toBeInTheDocument();
+  });
+
   it.each(['right', 'left'] as const)(
     'keeps a %s submenu open while crossing a sibling diagonally',
     async side => {

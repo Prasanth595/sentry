@@ -4,15 +4,10 @@ import type {ListState} from '@react-stately/list';
 import type {Node} from '@react-types/shared';
 
 import {SelectFilterContext} from '@sentry/scraps/compactSelect/selectFilterContext';
-import {
-  SectionGroup,
-  SectionHeader,
-  SectionSeparator,
-  SectionTitle,
-  SectionWrap,
-} from '@sentry/scraps/compactSelect/styles';
+import {SectionSeparator} from '@sentry/scraps/compactSelect/styles';
 import type {ListItemBase} from '@sentry/scraps/compactSelect/types';
 import {SectionToggle} from '@sentry/scraps/compactSelect/utils';
+import {Menu} from '@sentry/scraps/menu';
 
 import {GridListOption, type GridListOptionProps} from './option';
 
@@ -47,23 +42,28 @@ export function GridListSection<T extends ListItemBase>({
   return (
     <Fragment>
       <SectionSeparator {...separatorProps} />
-      <SectionWrap
+      <Menu.SectionGroup
         role="rowgroup"
         {...(node['aria-label']
           ? {'aria-label': node['aria-label']}
           : {'aria-labelledby': titleId})}
       >
         {(node.rendered || showToggleAllButton) && (
-          <SectionHeader>
+          <Menu.SectionHeader
+            trailingAction={
+              showToggleAllButton ? (
+                <SectionToggle item={node} listState={listState} />
+              ) : null
+            }
+          >
             {node.rendered && (
-              <SectionTitle id={titleId} aria-hidden>
+              <Menu.SectionLabel id={titleId} aria-hidden>
                 {node.rendered}
-              </SectionTitle>
+              </Menu.SectionLabel>
             )}
-            {showToggleAllButton && <SectionToggle item={node} listState={listState} />}
-          </SectionHeader>
+          </Menu.SectionHeader>
         )}
-        <SectionGroup role="presentation">
+        <Menu.SectionList>
           {childNodes.map(child => (
             <GridListOption
               key={child.key}
@@ -72,8 +72,8 @@ export function GridListSection<T extends ListItemBase>({
               size={size}
             />
           ))}
-        </SectionGroup>
-      </SectionWrap>
+        </Menu.SectionList>
+      </Menu.SectionGroup>
     </Fragment>
   );
 }
