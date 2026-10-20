@@ -7,7 +7,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from django.db import router, transaction
-from django.db.models import Q, QuerySet
+from django.db.models import QuerySet
 from django.utils import timezone
 from pydantic import BaseModel
 
@@ -49,7 +49,7 @@ def get_or_create_workflow_run(
     using = router.db_for_write(SeerWorkflowRun)
     runs = SeerWorkflowRun.objects.using(using).filter(
         organization_id=organization_id,
-        config_id_at_creation=workflow_config_id,
+        workflow_config_id=workflow_config_id,
         request_key=request_key,
     )
     existing = runs.first()
@@ -57,17 +57,12 @@ def get_or_create_workflow_run(
         return existing, False
 
     with transaction.atomic(using):
-        config = (
-            SeerWorkflowConfig.objects.select_for_update()
-            .filter(id=workflow_config_id, organization_id=organization_id)
-            .first()
+        config = SeerWorkflowConfig.objects.select_for_update().get(
+            id=workflow_config_id, organization_id=organization_id
         )
-        # Recheck after the lock, including when a concurrent delete cleared the config FK.
         existing = runs.first()
         if existing is not None:
             return existing, False
-        if config is None:
-            raise SeerWorkflowConfig.DoesNotExist
 
         snapshot = WorkflowRunSnapshot(
             config_version=config.version,
@@ -80,7 +75,6 @@ def get_or_create_workflow_run(
         run = SeerWorkflowRun.objects.using(using).create(
             organization_id=organization_id,
             workflow_config=config,
-            config_id_at_creation=config.id,
             request_key=request_key,
             status=SeerWorkflowRunStatus.RUNNING,
             date_started=timezone.now(),
@@ -119,9 +113,7 @@ def get_workflow_runs(
 ) -> QuerySet[SeerWorkflowRun]:
     runs = SeerWorkflowRun.objects.filter(organization_id=organization_id)
     if workflow_config_id is not None:
-        runs = runs.filter(
-            Q(config_id_at_creation=workflow_config_id) | Q(workflow_config_id=workflow_config_id)
-        )
+        runs = runs.filter(workflow_config_id=workflow_config_id)
     return runs.order_by("-date_added", "-id")
 
 

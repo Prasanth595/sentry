@@ -5,7 +5,6 @@ from pydantic import BaseModel
 
 from sentry.backup.scopes import RelocationScope
 from sentry.db.models import (
-    BoundedBigIntegerField,
     BoundedPositiveIntegerField,
     FlexibleForeignKey,
     cell_silo_model,
@@ -144,20 +143,16 @@ class SeerWorkflowRun(DefaultFieldsModel):
 
     organization = FlexibleForeignKey("sentry.Organization", on_delete=models.CASCADE)
     workflow_config = FlexibleForeignKey(
-        "seer.SeerWorkflowConfig", on_delete=models.SET_NULL, null=True
+        "seer.SeerWorkflowConfig", on_delete=models.CASCADE, null=True
     )
-    # Retains invocation identity after the config FK is cleared on deletion.
-    config_id_at_creation = BoundedBigIntegerField(null=True)
-    request_key = models.CharField(max_length=256, null=True)
+    # Nullable for legacy manual runs.
+    request_key = models.CharField(max_length=256, null=True, db_column="schedule_id")
     status = models.CharField(max_length=16, choices=SeerWorkflowRunStatus.choices, null=True)
     date_started = models.DateTimeField(null=True)
     # Immutable settings and inputs, in the shape of WorkflowRunSnapshot.
     snapshot = models.JSONField(null=True)
     # Structured terminal failures, in the shape of WorkflowRunError.
     error = models.JSONField(null=True)
-    # Cron-derived schedule window (currently YYYY-MM-DDTHH:MM), nullable for
-    # manual and historical runs.
-    schedule_id = models.CharField(max_length=256, null=True)
     date_completed = models.DateTimeField(null=True)
     extras = models.JSONField(db_default={}, default=dict)
 
@@ -168,23 +163,11 @@ class SeerWorkflowRun(DefaultFieldsModel):
             models.Index(fields=["organization", "date_added"]),
             models.Index(fields=["date_added"]),
             models.Index(fields=["workflow_config", "date_added"]),
-            models.Index(
-                fields=["organization", "config_id_at_creation", "-date_added", "-id"],
-                name="seer_run_org_cfg_history_idx",
-            ),
-            models.Index(
-                fields=["organization", "-date_added", "-id"], name="seer_run_org_history_idx"
-            ),
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["organization", "config_id_at_creation", "request_key"],
+                fields=["organization", "workflow_config", "request_key"],
                 condition=models.Q(request_key__isnull=False),
-                name="seer_run_org_config_request_uniq",
-            ),
-            models.UniqueConstraint(
-                fields=["organization", "workflow_config", "schedule_id"],
-                condition=models.Q(schedule_id__isnull=False),
                 name="seer_nightshiftrun_unique_org_config_schedule",
             ),
         ]

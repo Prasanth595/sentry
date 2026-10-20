@@ -269,7 +269,7 @@ class ConfiguredWorkflowRunTest(TestCase):
         first.refresh_from_db()
         assert first.date_completed is None
 
-    def test_deleted_config_retains_retry_identity_but_cannot_start_new_runs(self) -> None:
+    def test_deleted_config_cannot_be_retried(self) -> None:
         config = self.create_config()
         config_id = config.id
         run, _ = get_or_create_workflow_run(
@@ -280,27 +280,18 @@ class ConfiguredWorkflowRunTest(TestCase):
         )
         config.delete()
 
-        retry, created = get_or_create_workflow_run(
-            organization_id=self.organization.id,
-            workflow_config_id=config_id,
-            request_key="manual:first",
-            inputs=RunInputs(issue_limit=20),
-        )
-        assert created is False
-        assert retry.id == run.id
-        assert retry.workflow_config_id is None
-        assert retry.config_id_at_creation == config_id
-        assert retry.snapshot == run.snapshot
-        assert list(
-            get_workflow_runs(organization_id=self.organization.id, workflow_config_id=config_id)
-        ) == [retry]
         with pytest.raises(SeerWorkflowConfig.DoesNotExist):
             get_or_create_workflow_run(
                 organization_id=self.organization.id,
                 workflow_config_id=config_id,
-                request_key="manual:new",
+                request_key="manual:first",
                 inputs=RunInputs(issue_limit=10),
             )
+        with pytest.raises(SeerWorkflowRun.DoesNotExist):
+            complete_workflow_run(organization_id=self.organization.id, workflow_run_id=run.id)
+        assert not get_workflow_runs(
+            organization_id=self.organization.id, workflow_config_id=config_id
+        ).exists()
 
     def test_no_work_completion_is_independent_of_executions_and_idempotent(self) -> None:
         run = self.create_run()
