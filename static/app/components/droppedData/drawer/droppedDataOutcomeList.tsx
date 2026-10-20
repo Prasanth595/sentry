@@ -1,17 +1,23 @@
-import {IconEllipsis} from '@sentry/icons/ellipsis';
+import styled from '@emotion/styled';
+import {IconOpen} from '@sentry/icons/open';
+import {IconSeer} from '@sentry/icons/seer';
 
-import {useDrawer, useDrawerContentContext} from '@sentry/scraps/drawer';
-import {DropdownMenu, type MenuItemProps} from '@sentry/scraps/dropdownMenu';
+import {Button, LinkButton} from '@sentry/scraps/button';
+import {useDrawerContentContext} from '@sentry/scraps/drawer';
 import {Flex, Grid, Stack} from '@sentry/scraps/layout';
-import {OverlayTrigger} from '@sentry/scraps/overlayTrigger';
 import type {TableColumnConfig} from '@sentry/scraps/table';
 import {Text} from '@sentry/scraps/text';
 
+import {Count} from 'sentry/components/count';
 import type {
   OutcomeSection,
   ReasonRow,
 } from 'sentry/components/droppedData/drawer/outcomeSections';
-import {formatDroppedShare, reasonTitle} from 'sentry/components/droppedData/outcomes';
+import {
+  formatDroppedShare,
+  reasonDocsUrl,
+  reasonTitle,
+} from 'sentry/components/droppedData/outcomes';
 import {SimpleTable} from 'sentry/components/tables/simpleTable';
 import {t} from 'sentry/locale';
 
@@ -21,75 +27,62 @@ const TABLE_COLUMNS: TableColumnConfig[] = Object.entries(COLUMN_WIDTHS).map(
 );
 const HEADER_COLUMNS = Object.values(COLUMN_WIDTHS).join(' ');
 
-function ReasonActionsMenu({
+function ReasonAskSeerButton({
   row,
-  onTroubleshoot,
+  onAskSeer,
 }: {
+  onAskSeer: (row: ReasonRow) => void;
   row: ReasonRow;
-  onTroubleshoot?: (row: ReasonRow) => void;
 }) {
   const {onClose: closeDroppedDataDrawer} = useDrawerContentContext();
-  const {panelRef} = useDrawer();
-
-  // TODO: this will be a dynamic URL once the per-reason docs page
-  // fully up-to-date.
-  const docsHref = 'https://docs.sentry.io/';
-
-  const items: MenuItemProps[] = [
-    ...(onTroubleshoot
-      ? [
-          {
-            key: 'troubleshoot',
-            label: t('Troubleshoot'),
-            onAction: () => {
-              closeDroppedDataDrawer?.();
-              onTroubleshoot(row);
-            },
-          },
-        ]
-      : []),
-    {
-      key: 'docs',
-      label: t('Go to Docs'),
-      externalHref: docsHref,
-    },
-  ];
 
   return (
-    <DropdownMenu
-      items={items}
-      position="bottom-end"
-      usePortal
-      portalContainerRef={panelRef}
-      trigger={(triggerProps, isOpen) => (
-        <OverlayTrigger.IconButton
-          {...triggerProps}
-          size="xs"
-          variant="transparent"
-          icon={<IconEllipsis />}
-          aria-label={t('Reason actions')}
-          aria-expanded={isOpen}
-        />
-      )}
+    <HoverRevealButton
+      size="zero"
+      variant="primary"
+      icon={<IconSeer />}
+      aria-label={t('Ask Seer')}
+      tooltipProps={{title: t('Ask Seer')}}
+      onClick={() => {
+        closeDroppedDataDrawer?.();
+        onAskSeer(row);
+      }}
+    />
+  );
+}
+
+function ReasonDocsLinkButton({href}: {href: string}) {
+  return (
+    <LinkButton
+      size="zero"
+      variant="transparent"
+      icon={<IconOpen size="xs" />}
+      aria-label={t('Go to docs')}
+      tooltipProps={{title: t('Go to docs')}}
+      href={href}
+      external
     />
   );
 }
 
 function ReasonTableRow({
   row,
-  onTroubleshoot,
+  onAskSeer,
 }: {
   row: ReasonRow;
-  onTroubleshoot?: (row: ReasonRow) => void;
+  onAskSeer?: (row: ReasonRow) => void;
 }) {
+  const docsUrl = reasonDocsUrl(row.reason);
+
   return (
     <SimpleTable.Row>
-      <SimpleTable.RowCell padding="md xl">
+      <SimpleTable.RowCell padding="md xl" gap="sm">
         <Text size="md">{reasonTitle(row.reason)}</Text>
+        {docsUrl && <ReasonDocsLinkButton href={docsUrl} />}
       </SimpleTable.RowCell>
       <SimpleTable.RowCell justify="end" padding="md xl">
         <Text size="md" variant="muted" tabular>
-          {row.events.toLocaleString()}
+          <Count value={row.events} />
         </Text>
       </SimpleTable.RowCell>
       <SimpleTable.RowCell justify="end" padding="md xl">
@@ -97,8 +90,8 @@ function ReasonTableRow({
           {formatDroppedShare(row.shareRatio)}
         </Text>
       </SimpleTable.RowCell>
-      <SimpleTable.RowCell justify="center" padding="0">
-        <ReasonActionsMenu row={row} onTroubleshoot={onTroubleshoot} />
+      <SimpleTable.RowCell justify="center" padding="0" overflow="visible">
+        {onAskSeer && <ReasonAskSeerButton row={row} onAskSeer={onAskSeer} />}
       </SimpleTable.RowCell>
     </SimpleTable.Row>
   );
@@ -114,10 +107,10 @@ function ColumnHeading({children}: {children: React.ReactNode}) {
 
 function ReasonTable({
   reasons,
-  onTroubleshoot,
+  onAskSeer,
 }: {
   reasons: ReasonRow[];
-  onTroubleshoot?: (row: ReasonRow) => void;
+  onAskSeer?: (row: ReasonRow) => void;
 }) {
   return (
     <SimpleTable
@@ -141,7 +134,7 @@ function ReasonTable({
         <ReasonTableRow
           key={`${row.outcome}:${row.reason}`}
           row={row}
-          onTroubleshoot={onTroubleshoot}
+          onAskSeer={onAskSeer}
         />
       ))}
     </SimpleTable>
@@ -150,10 +143,10 @@ function ReasonTable({
 
 function OutcomeSectionRow({
   section,
-  onTroubleshoot,
+  onAskSeer,
 }: {
   section: OutcomeSection;
-  onTroubleshoot?: (row: ReasonRow) => void;
+  onAskSeer?: (row: ReasonRow) => void;
 }) {
   return (
     <Stack gap="md">
@@ -165,7 +158,7 @@ function OutcomeSectionRow({
         </Flex>
         <Flex justify="end" padding="md xl">
           <Text size="md" variant="muted" tabular>
-            {section.events.toLocaleString()}
+            <Count value={section.events} />
           </Text>
         </Flex>
         <Flex justify="end" padding="md xl">
@@ -174,19 +167,19 @@ function OutcomeSectionRow({
           </Text>
         </Flex>
       </Grid>
-      <ReasonTable reasons={section.reasons} onTroubleshoot={onTroubleshoot} />
+      <ReasonTable reasons={section.reasons} onAskSeer={onAskSeer} />
     </Stack>
   );
 }
 
 interface DroppedDataOutcomeListProps {
   sections: OutcomeSection[];
-  onTroubleshoot?: (row: ReasonRow) => void;
+  onAskSeer?: (row: ReasonRow) => void;
 }
 
 export function DroppedDataOutcomeList({
   sections,
-  onTroubleshoot,
+  onAskSeer,
 }: DroppedDataOutcomeListProps) {
   return (
     <Stack gap="md">
@@ -194,9 +187,18 @@ export function DroppedDataOutcomeList({
         <OutcomeSectionRow
           key={section.outcome}
           section={section}
-          onTroubleshoot={onTroubleshoot}
+          onAskSeer={onAskSeer}
         />
       ))}
     </Stack>
   );
 }
+
+const HoverRevealButton = styled(Button)`
+  opacity: 0;
+
+  [role='row']:hover &,
+  [role='row']:focus-within & {
+    opacity: 1;
+  }
+`;

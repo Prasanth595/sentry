@@ -30,13 +30,13 @@ import {useChartInterval} from 'sentry/utils/useChartInterval';
 interface DroppedDataDrawerProps {
   dataset: DiscoverDatasets;
   interval?: string;
-  onTroubleshoot?: (row: ReasonRow) => void;
+  onAskSeer?: (row: ReasonRow) => void;
 }
 
 export function DroppedDataDrawer({
   dataset,
   interval,
-  onTroubleshoot,
+  onAskSeer,
 }: DroppedDataDrawerProps) {
   const theme = useTheme();
   const [chartInterval] = useChartInterval();
@@ -114,10 +114,17 @@ export function DroppedDataDrawer({
               onSelectionChange={setOutcomeSelection}
             />
             {selectedGroups.unintentional.length > 0 && (
-              <DroppedDataOutcomeList
-                sections={selectedGroups.unintentional}
-                onTroubleshoot={onTroubleshoot}
-              />
+              <Stack gap="md">
+                <Container padding="0 xl">
+                  <Heading as="h3" size="xl">
+                    {t('Unexpected Drops')}
+                  </Heading>
+                </Container>
+                <DroppedDataOutcomeList
+                  sections={selectedGroups.unintentional}
+                  onAskSeer={onAskSeer}
+                />
+              </Stack>
             )}
             {selectedGroups.intentional.length > 0 && (
               <Stack gap="md">
@@ -125,13 +132,13 @@ export function DroppedDataDrawer({
                   <Separator orientation="horizontal" border="primary" />
                   <Container padding="0 xl">
                     <Heading as="h3" size="xl">
-                      {t('Configured Drops')}
+                      {t('Expected Drops')}
                     </Heading>
                   </Container>
                 </Stack>
                 <DroppedDataOutcomeList
                   sections={selectedGroups.intentional}
-                  onTroubleshoot={onTroubleshoot}
+                  onAskSeer={onAskSeer}
                 />
               </Stack>
             )}
