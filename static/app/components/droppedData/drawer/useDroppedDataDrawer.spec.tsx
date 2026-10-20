@@ -463,7 +463,7 @@ describe('useDroppedDataDrawer', () => {
     });
   });
 
-  it('hands off to Seer Explorer from a reason’s troubleshoot action', async () => {
+  it('hands off to Seer Explorer from a reason’s Ask Seer button', async () => {
     const seerOrganization = OrganizationFixture({
       openMembership: true,
       hideAiFeatures: false,
@@ -512,8 +512,7 @@ describe('useDroppedDataDrawer', () => {
     await userEvent.click(screen.getByRole('button', {name: 'Open dropped data'}));
     expect(await screen.findByText('10 Dropped Events')).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', {name: 'Reason actions'}));
-    await userEvent.click(screen.getByRole('menuitemradio', {name: 'Troubleshoot'}));
+    await userEvent.click(screen.getByRole('button', {name: 'Ask Seer'}));
 
     expect(
       await screen.findByRole('complementary', {name: 'Seer Explorer Drawer'})

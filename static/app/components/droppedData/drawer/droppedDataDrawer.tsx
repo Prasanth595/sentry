@@ -30,13 +30,13 @@ import {useChartInterval} from 'sentry/utils/useChartInterval';
 interface DroppedDataDrawerProps {
   dataset: DiscoverDatasets;
   interval?: string;
-  onTroubleshoot?: (row: ReasonRow) => void;
+  onAskSeer?: (row: ReasonRow) => void;
 }
 
 export function DroppedDataDrawer({
   dataset,
   interval,
-  onTroubleshoot,
+  onAskSeer,
 }: DroppedDataDrawerProps) {
   const theme = useTheme();
   const [chartInterval] = useChartInterval();
@@ -116,7 +116,7 @@ export function DroppedDataDrawer({
             {selectedGroups.unintentional.length > 0 && (
               <DroppedDataOutcomeList
                 sections={selectedGroups.unintentional}
-                onTroubleshoot={onTroubleshoot}
+                onAskSeer={onAskSeer}
               />
             )}
             {selectedGroups.intentional.length > 0 && (
@@ -131,7 +131,7 @@ export function DroppedDataDrawer({
                 </Stack>
                 <DroppedDataOutcomeList
                   sections={selectedGroups.intentional}
-                  onTroubleshoot={onTroubleshoot}
+                  onAskSeer={onAskSeer}
                 />
               </Stack>
             )}
