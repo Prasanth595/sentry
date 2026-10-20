@@ -3,20 +3,35 @@ from unittest.mock import Mock, patch
 
 import pytest
 from django.test import override_settings
+from pydantic import BaseModel
 
 from sentry.hybridcloud.models.outbox import CellOutbox
 from sentry.hybridcloud.outbox.category import OutboxCategory
 from sentry.seer.agent.client import SeerAgentClient
 from sentry.seer.models.run import SeerAgentRun, SeerRun, SeerRunMirrorStatus
-from sentry.seer.models.workflow import SeerWorkflowRun, SeerWorkflowStrategy
+from sentry.seer.models.workflow import (
+    SeerWorkflowConfig,
+    SeerWorkflowRun,
+    SeerWorkflowRunStatus,
+    SeerWorkflowStrategy,
+)
 from sentry.seer.workflows.runs import (
+    complete_workflow_run,
     create_workflow_run,
     deliver_workflow_result,
     finish_workflow_run,
+    get_or_create_workflow_run,
     get_workflow_run_status,
+    get_workflow_runs,
 )
-from sentry.seer.workflows.schemas import WorkflowResult
+from sentry.seer.workflows.schemas import WorkflowResult, WorkflowRunError, WorkflowRunSnapshot
+from sentry.seer.workflows.workflow import SeerWorkflow, SelectedProjects
 from sentry.testutils.cases import TestCase
+from sentry.testutils.factories import Factories
+
+
+class RunInputs(BaseModel):
+    issue_limit: int
 
 
 @override_settings(SENTRY_SELF_HOSTED=False)
@@ -167,3 +182,162 @@ class WorkflowRunTest(TestCase):
         run = workflow.executions.get().seer_run
         assert run is not None
         return run
+
+
+class ConfiguredWorkflowRunTest(TestCase):
+    def test_retries_keep_original_snapshot_and_new_invocations_capture_edits(self) -> None:
+        first = self.create_project()
+        config = self.create_config()
+        run, created = get_or_create_workflow_run(
+            organization_id=self.organization.id,
+            workflow_config_id=config.id,
+            request_key="manual:first",
+            inputs=RunInputs(issue_limit=10),
+        )
+        assert created is True
+        assert run.status == SeerWorkflowRunStatus.RUNNING
+        assert run.date_started is not None
+        assert not run.executions.exists()
+        snapshot = WorkflowRunSnapshot.parse_obj(run.snapshot)
+        assert snapshot.config_version == 1
+        assert snapshot.project_ids == (first.id,)
+        assert snapshot.inputs == {"issue_limit": 10}
+
+        later = self.create_project()
+        SeerWorkflow(config).set_project_selection(SelectedProjects(project_ids=(later.id,)))
+        retry, created = get_or_create_workflow_run(
+            organization_id=self.organization.id,
+            workflow_config_id=config.id,
+            request_key="manual:first",
+            inputs=RunInputs(issue_limit=20),
+        )
+        assert created is False
+        assert retry.id == run.id
+        assert retry.snapshot == run.snapshot
+
+        next_run, created = get_or_create_workflow_run(
+            organization_id=self.organization.id,
+            workflow_config_id=config.id,
+            request_key="manual:next",
+            inputs=RunInputs(issue_limit=20),
+        )
+        assert created is True
+        assert next_run.id != run.id
+        snapshot = WorkflowRunSnapshot.parse_obj(next_run.snapshot)
+        assert snapshot.config_version == 2
+        assert snapshot.project_ids == (later.id,)
+        assert snapshot.inputs == {"issue_limit": 20}
+
+    def test_request_identity_is_scoped_to_organization_and_config(self) -> None:
+        config, other_config = self.create_config(), self.create_config()
+        other_org = self.create_organization()
+        first, _ = get_or_create_workflow_run(
+            organization_id=self.organization.id,
+            workflow_config_id=config.id,
+            request_key="event:occurrence",
+            inputs=RunInputs(issue_limit=10),
+        )
+        second, created = get_or_create_workflow_run(
+            organization_id=self.organization.id,
+            workflow_config_id=other_config.id,
+            request_key="event:occurrence",
+            inputs=RunInputs(issue_limit=10),
+        )
+        assert created is True
+        assert first.id != second.id
+        legacy = Factories.create_seer_workflow_run(self.organization, workflow_config=config)
+        assert list(get_workflow_runs(organization_id=self.organization.id)) == [
+            legacy,
+            second,
+            first,
+        ]
+        assert list(
+            get_workflow_runs(organization_id=self.organization.id, workflow_config_id=config.id)
+        ) == [legacy, first]
+        assert not get_workflow_runs(
+            organization_id=other_org.id, workflow_config_id=config.id
+        ).exists()
+        with pytest.raises(SeerWorkflowConfig.DoesNotExist):
+            get_or_create_workflow_run(
+                organization_id=other_org.id,
+                workflow_config_id=config.id,
+                request_key="event:occurrence",
+                inputs=RunInputs(issue_limit=10),
+            )
+        with pytest.raises(SeerWorkflowRun.DoesNotExist):
+            complete_workflow_run(organization_id=other_org.id, workflow_run_id=first.id)
+        first.refresh_from_db()
+        assert first.date_completed is None
+
+    def test_deleted_config_cannot_be_retried(self) -> None:
+        config = self.create_config()
+        config_id = config.id
+        run, _ = get_or_create_workflow_run(
+            organization_id=self.organization.id,
+            workflow_config_id=config_id,
+            request_key="manual:first",
+            inputs=RunInputs(issue_limit=10),
+        )
+        config.delete()
+
+        with pytest.raises(SeerWorkflowConfig.DoesNotExist):
+            get_or_create_workflow_run(
+                organization_id=self.organization.id,
+                workflow_config_id=config_id,
+                request_key="manual:first",
+                inputs=RunInputs(issue_limit=10),
+            )
+        with pytest.raises(SeerWorkflowRun.DoesNotExist):
+            complete_workflow_run(organization_id=self.organization.id, workflow_run_id=run.id)
+        assert not get_workflow_runs(
+            organization_id=self.organization.id, workflow_config_id=config_id
+        ).exists()
+
+    def test_no_work_completion_is_independent_of_executions_and_idempotent(self) -> None:
+        run = self.create_run()
+        complete = complete_workflow_run(
+            organization_id=self.organization.id, workflow_run_id=run.id
+        )
+        assert complete.status == SeerWorkflowRunStatus.COMPLETE
+        assert complete.error is None
+        assert complete.date_completed is not None
+        assert not complete.executions.exists()
+        assert complete.snapshot == run.snapshot
+
+        repeated = complete_workflow_run(
+            organization_id=self.organization.id,
+            workflow_run_id=run.id,
+            result=WorkflowRunError(code="late_error", message="Late failure"),
+        )
+        assert repeated.status == SeerWorkflowRunStatus.COMPLETE
+        assert repeated.error is None
+        assert repeated.date_completed == complete.date_completed
+
+    def test_failed_work_preserves_snapshot_and_records_error(self) -> None:
+        run = self.create_run()
+        complete = complete_workflow_run(
+            organization_id=self.organization.id,
+            workflow_run_id=run.id,
+            result=WorkflowRunError(code="selection_failed", message="Work selection failed"),
+        )
+        assert complete.status == SeerWorkflowRunStatus.FAILED
+        assert complete.error == {"code": "selection_failed", "message": "Work selection failed"}
+        assert complete.date_completed is not None
+        assert complete.snapshot == run.snapshot
+
+    def create_run(self) -> SeerWorkflowRun:
+        config = self.create_config()
+        run, _ = get_or_create_workflow_run(
+            organization_id=self.organization.id,
+            workflow_config_id=config.id,
+            request_key="manual:first",
+            inputs=RunInputs(issue_limit=10),
+        )
+        return run
+
+    def create_config(self) -> SeerWorkflowConfig:
+        return Factories.create_seer_workflow_config(
+            self.organization,
+            strategy=SeerWorkflowStrategy.AGENTIC_TRIAGE_V2,
+            filters={"all_projects": True},
+        )

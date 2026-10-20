@@ -819,7 +819,7 @@ class TestRunAgenticTriageForOrg(AgenticTriageFixtures, TestCase, SnubaTestCase)
             run_agentic_triage_for_org(org.id)
 
         assert (
-            SeerWorkflowRun.objects.filter(organization=org, schedule_id__isnull=True).count() == 2
+            SeerWorkflowRun.objects.filter(organization=org, request_key__isnull=True).count() == 2
         )
 
     def test_no_eligible_projects(self) -> None:
