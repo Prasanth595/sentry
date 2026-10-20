@@ -9,6 +9,7 @@ from sentry.issues.action_log.types import (
     AssignAction,
     AutoSetOngoingAction,
     CommentAction,
+    CommentCreatedAction,
     CreateIssueAction,
     DeletedAttachmentAction,
     DeployAction,
@@ -72,7 +73,7 @@ ACTIVITY_TYPE_TO_GROUP_ACTION_TYPE: Mapping[int, type[GroupAction]] = {
     ActivityType.SET_PRIVATE.value: SetPrivateAction,
     ActivityType.SET_REGRESSION.value: SetRegressedAction,
     ActivityType.CREATE_ISSUE.value: CreateIssueAction,
-    ActivityType.NOTE.value: CommentAction,
+    ActivityType.NOTE.value: CommentCreatedAction,
     ActivityType.ASSIGNED.value: AssignAction,
     ActivityType.UNASSIGNED.value: UnassignAction,
     ActivityType.SET_RESOLVED_IN_RELEASE.value: SetResolvedInReleaseAction,
@@ -138,6 +139,9 @@ GROUP_ACTION_TYPE_TO_ACTIVITY_TYPE = {
     action_cls.get_type().value: activity_type
     for activity_type, action_cls in ACTIVITY_TYPE_TO_GROUP_ACTION_TYPE.items()
 }
+
+# Stored legacy COMMENT entries retain their original feed serialization.
+GROUP_ACTION_TYPE_TO_ACTIVITY_TYPE[CommentAction.get_type().value] = ActivityType.NOTE.value
 
 # GALE payloads are stored with the snake_case GroupAction field names, but the
 # frontend consumes the Activity `data` shape. Reverse the camelCase -> snake_case
@@ -213,6 +217,10 @@ def activity_to_action(activity: "Activity") -> GroupAction | None:
     Does not publish the GroupAction to a GroupActionLogEntry.
     """
 
+    if activity.type == ActivityType.NOTE.value:
+        # Shared by live writes and backfill. Do not copy mutable comment bodies.
+        return CommentCreatedAction(comment_id=activity.id, occurred_at=activity.datetime)
+
     # Ignore certain Activities that don't make sense to translate to GroupActions.
     if activity.type in ACTIVITY_TYPES_WITH_NO_ACTION:
         return None
@@ -247,10 +255,6 @@ def activity_to_action(activity: "Activity") -> GroupAction | None:
         # Translate from Activity data structure to GroupAction data structure.
         kwargs = kwargs.copy()  # Avoid mutating existing dict
         kwargs["counterpart_group_ids"] = [datum["id"] for datum in kwargs.get("issues", [])]
-
-    if activity.type == ActivityType.NOTE.value:
-        kwargs = kwargs.copy()  # Avoid mutating existing dict
-        kwargs["comment_id"] = activity.id
 
     # Pydantic lets you pass in whatever kwargs you want. If a kwarg matches some field,
     # Pydantic will set it - else Pydantic just ignores it.

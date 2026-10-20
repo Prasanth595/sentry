@@ -1,6 +1,9 @@
+from sentry.issues.action_log.types import GroupActionType
+from sentry.issues.models.groupactionlogentry import GroupActionLogEntry
 from sentry.models.activity import Activity
 from sentry.tasks.email import process_inbound_email
 from sentry.testutils.cases import TestCase
+from sentry.testutils.helpers.features import with_feature
 from sentry.testutils.skips import requires_snuba
 from sentry.types.activity import ActivityType
 
@@ -16,6 +19,7 @@ class ProcessInboundEmailTest(TestCase):
 
         assert not Activity.objects.filter(group=group, type=ActivityType.NOTE.value).exists()
 
+    @with_feature("projects:issue-action-log-write-to-db")
     def test_duplicate_delivery(self) -> None:
         group = self.create_group()
 
@@ -26,6 +30,15 @@ class ProcessInboundEmailTest(TestCase):
 
         activity = Activity.objects.get(group=group, type=ActivityType.NOTE.value)
         assert activity.data == {"text": "hello world!"}
+        entry = GroupActionLogEntry.objects.get(
+            group_id=group.id, type=GroupActionType.COMMENT_CREATED
+        )
+        assert entry.data == {
+            "comment_id": activity.id,
+            "occurred_at": activity.datetime.isoformat(),
+        }
+        assert entry.source == "email"
+        assert entry.actor_id == self.user.id
 
     def test_simple(self) -> None:
         group = self.create_group()

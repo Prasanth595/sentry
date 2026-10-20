@@ -42,7 +42,7 @@ class GroupNoteTest(APITestCase):
 
         with (
             patch(
-                "sentry.issues.endpoints.group_notes.should_serve_action_log_activity"
+                "sentry.issues.endpoints.group_notes.should_serve_action_log_activity", create=True
             ) as read_gate,
             patch("sentry.issues.endpoints.group_notes.record_activity_read") as record_read,
         ):
@@ -74,7 +74,7 @@ class GroupNoteTest(APITestCase):
 
         with (
             patch(
-                "sentry.issues.endpoints.group_notes.should_serve_action_log_activity"
+                "sentry.issues.endpoints.group_notes.should_serve_action_log_activity", create=True
             ) as read_gate,
             patch("sentry.issues.endpoints.group_notes.record_activity_read") as record_read,
         ):
@@ -106,7 +106,7 @@ class GroupNoteTest(APITestCase):
 
         with (
             patch(
-                "sentry.issues.endpoints.group_notes.should_serve_action_log_activity"
+                "sentry.issues.endpoints.group_notes.should_serve_action_log_activity", create=True
             ) as read_gate,
             patch("sentry.issues.endpoints.group_notes.record_activity_read") as record_read,
         ):
@@ -141,7 +141,7 @@ class GroupNoteTest(APITestCase):
 
         with (
             patch(
-                "sentry.issues.endpoints.group_notes.should_serve_action_log_activity"
+                "sentry.issues.endpoints.group_notes.should_serve_action_log_activity", create=True
             ) as read_gate,
             patch("sentry.issues.endpoints.group_notes.record_activity_read") as record_read,
         ):
@@ -455,7 +455,7 @@ class GroupNoteCreateTest(APITestCase):
         assert response.status_code == 400, response.content
 
     @action_log_activity_enabled()
-    def test_returns_gale(self) -> None:
+    def test_returns_activity_with_audit_source(self) -> None:
         group = self.group
 
         self.login_as(user=self.user)
@@ -474,16 +474,21 @@ class GroupNoteCreateTest(APITestCase):
             group=group, type=ActivityType.NOTE.value, user_id=self.user.id
         )
         entry = GroupActionLogEntry.objects.get(
-            group_id=group.id, type=GroupActionType.COMMENT.value
+            group_id=group.id, type=GroupActionType.COMMENT_CREATED.value
         )
 
-        assert response.data["id"] == str(entry.id)
+        assert response.data["id"] == str(activity.id)
         assert response.data["commentId"] == str(activity.id)
         assert response.data["type"] == "note"
         assert response.data["source"] == "mcp:claude-code"
         assert response.data["user"]["id"] == str(self.user.id)
         assert response.data["data"]["text"] == "hello world"
         assert response.data["data"]["comment_id"] == activity.id
+
+        assert entry.data == {
+            "comment_id": activity.id,
+            "occurred_at": activity.datetime.isoformat(),
+        }
 
     def test_with_mentions(self) -> None:
         user_not_on_team = self.create_user(email="hello@meow.com")
