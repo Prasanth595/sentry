@@ -296,7 +296,7 @@ function ActionButtons({
             variant="transparent"
             active={!isCaseInsensitive}
             onClick={() => {
-              onCaseInsensitiveClick?.(isCaseInsensitive ? null : true);
+              onCaseInsensitiveClick?.(!isCaseInsensitive);
             }}
           />
         </Tooltip>
