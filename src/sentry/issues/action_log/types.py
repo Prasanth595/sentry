@@ -87,6 +87,9 @@ class GroupActionType(IntEnum):
     PULL_REQUEST_MERGED = 32
     PULL_REQUEST_UNLINKED = 33
     FIRST_SEEN = 34
+    COMMENT_CREATED = 35
+    COMMENT_EDITED = 36
+    COMMENT_DELETED = 37
 
     # Certain GroupActions are mirrors of Activity records.
     # (See ACTIVITY_TYPE_TO_GROUP_ACTION_TYPE for the mapping.)
@@ -170,6 +173,12 @@ COMMIT_ACTION_TYPES = {
 ACTION_TYPES_WITH_COMMIT_DATA = {
     *COMMIT_ACTION_TYPES,
     GroupActionType.SET_RESOLVED_IN_RELEASE.value,
+}
+
+COMMENT_AUDIT_ACTION_TYPES = {
+    GroupActionType.COMMENT_CREATED.value,
+    GroupActionType.COMMENT_EDITED.value,
+    GroupActionType.COMMENT_DELETED.value,
 }
 
 COMMENT_MUTATION_ACTION_TYPES = {
@@ -394,6 +403,8 @@ class SentryActorRef(BaseModel):
 
 
 class CommentAction(GroupAction):
+    """Historical creation payload: comment_id is an Activity NOTE ID."""
+
     user_visible = True
     comment_id: int
     text: Optional[str] = None
@@ -405,6 +416,8 @@ class CommentAction(GroupAction):
 
 
 class CommentEditAction(GroupAction):
+    """Historical edit payload: comment_id is the original COMMENT GAL ID."""
+
     user_visible = True
     comment_id: int
     text: Optional[str] = None
@@ -416,12 +429,47 @@ class CommentEditAction(GroupAction):
 
 
 class CommentDeleteAction(GroupAction):
+    """Historical deletion payload: comment_id is the original COMMENT GAL ID."""
+
     user_visible = True
     comment_id: int
 
     @classmethod
     def get_type(cls) -> GroupActionType:
         return GroupActionType.COMMENT_DELETE
+
+
+class CommentCreatedAction(GroupAction):
+    """Creation audit event. Current content lives in the Activity NOTE row."""
+
+    comment_id: int  # Activity NOTE ID, also used by the notes API.
+    occurred_at: datetime  # Mutation time, independent of outbox delivery time.
+
+    @classmethod
+    def get_type(cls) -> GroupActionType:
+        return GroupActionType.COMMENT_CREATED
+
+
+class CommentEditedAction(GroupAction):
+    """Edit audit event; no previous or current comment content is retained."""
+
+    comment_id: int  # Activity NOTE ID, not a GAL ID.
+    occurred_at: datetime
+
+    @classmethod
+    def get_type(cls) -> GroupActionType:
+        return GroupActionType.COMMENT_EDITED
+
+
+class CommentDeletedAction(GroupAction):
+    """Deletion audit event referring to the deleted Activity NOTE ID."""
+
+    comment_id: int
+    occurred_at: datetime
+
+    @classmethod
+    def get_type(cls) -> GroupActionType:
+        return GroupActionType.COMMENT_DELETED
 
 
 class SubscribeAction(GroupAction):
