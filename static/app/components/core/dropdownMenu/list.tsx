@@ -13,8 +13,11 @@ import {useTreeState} from '@react-stately/tree';
 import type {Node} from '@react-types/shared';
 import type {LocationDescriptor} from 'history';
 
+import {minHeight} from '@sentry/scraps/compactSelect/utils';
 import {Container, Stack} from '@sentry/scraps/layout';
 import {Menu} from '@sentry/scraps/menu';
+import {Text} from '@sentry/scraps/text';
+import {useTranslation} from '@sentry/scraps/translation/useTranslation';
 
 import {Overlay, PositionWrapper} from 'sentry/components/overlay';
 import {normalizeUrl} from 'sentry/utils/url/normalizeUrl';
@@ -51,6 +54,7 @@ export interface DropdownMenuListProps
    * Prevent users from highlighting text inside the menu.
    */
   disableTextSelection?: boolean;
+  emptyMessage?: React.ReactNode;
   /**
    * To be displayed below the menu items
    */
@@ -59,10 +63,14 @@ export interface DropdownMenuListProps
    * Title to display on top of the menu
    */
   menuTitle?: React.ReactNode;
+  menuWidth?: number | string;
+  minMenuHeight?: number | string;
   search?: {
     onChange: (value: string) => void;
     value: string;
     placeholder?: string;
+    showIcon?: boolean;
+    size?: 'xs' | 'sm' | 'md';
   };
   size?: MenuItemProps['size'];
   /**
@@ -192,10 +200,13 @@ function DropdownMenuCollection({
 
 function DropdownMenuList({
   closeOnSelect = true,
+  emptyMessage,
   onClose,
   size,
   menuTitle,
   menuFooter,
+  menuWidth,
+  minMenuHeight,
   search,
   disableTextSelection,
   overlayState,
@@ -203,6 +214,7 @@ function DropdownMenuList({
   zIndex,
   ...props
 }: DropdownMenuListProps) {
+  const {t} = useTranslation();
   const {rootOverlayState, parentMenuState} = useContext(DropdownMenuContext);
   const safetyTriangle = useSafetyTriangle();
   const state = useTreeState<MenuItemProps>({...props, selectionMode: 'single'});
@@ -277,30 +289,38 @@ function DropdownMenuList({
         {...overlayPositionProps}
       >
         <DropdownMenuContext value={contextValue}>
-          <StyledOverlay>
-            {menuTitle && (
-              <Menu.Header padding="sm lg">
-                <Menu.Title>{menuTitle}</Menu.Title>
+          <StyledOverlay
+            minMenuHeight={minMenuHeight}
+            menuWidth={menuWidth}
+            maxWidthProp={overlayPositionProps.style?.maxWidth}
+          >
+            {(menuTitle || search) && (
+              <Menu.Header>
+                {menuTitle && <Menu.Title padding="sm lg">{menuTitle}</Menu.Title>}
+                {search && (
+                  <Menu.Search
+                    showIcon={search.showIcon}
+                    size={search.size}
+                    aria-label={search.placeholder ?? 'Search'}
+                    placeholder={search.placeholder ?? 'Search…'}
+                    value={search.value}
+                    onChange={event => search.onChange(event.target.value)}
+                    onKeyDown={event => {
+                      if (event.key === 'ArrowDown') {
+                        event.preventDefault();
+                        menuRef.current
+                          ?.querySelector<HTMLElement>('[role^="menuitem"]')
+                          ?.focus();
+                      }
+                    }}
+                  />
+                )}
               </Menu.Header>
             )}
-            {search && (
-              <Menu.Search
-                aria-label={search.placeholder ?? 'Search'}
-                placeholder={search.placeholder ?? 'Search…'}
-                value={search.value}
-                onChange={event => search.onChange(event.target.value)}
-                onKeyDown={event => {
-                  if (event.key === 'ArrowDown') {
-                    event.preventDefault();
-                    menuRef.current
-                      ?.querySelector<HTMLElement>('[role^="menuitem"]')
-                      ?.focus();
-                  }
-                }}
-              />
-            )}
             <DropdownMenuListWrap
+              as="ul"
               ref={menuRef}
+              flex={search?.value.trim() && stateCollection.length === 0 ? 1 : undefined}
               hasTitle={!!menuTitle}
               disableTextSelection={disableTextSelection}
               {...mergeProps(modifiedMenuProps, keyboardProps)}
@@ -317,6 +337,18 @@ function DropdownMenuList({
                 size={size}
                 state={state}
               />
+              {search?.value.trim() && stateCollection.length === 0 && (
+                <Stack
+                  as="li"
+                  role="presentation"
+                  align="center"
+                  justify="center"
+                  flex={1}
+                  padding="md lg"
+                >
+                  <Text variant="muted">{emptyMessage ?? t('No results found')}</Text>
+                </Stack>
+              )}
             </DropdownMenuListWrap>
             {menuFooter}
           </StyledOverlay>
@@ -466,7 +498,11 @@ function SearchableDropdownSubmenuContent({
   searchOptions,
   ...props
 }: Omit<DropdownMenuContentProps, 'search'> & {
-  searchOptions?: {placeholder?: string};
+  searchOptions?: {
+    placeholder?: string;
+    showIcon?: boolean;
+    size?: 'xs' | 'sm' | 'md';
+  };
 }) {
   const [search, setSearch] = useState('');
   return (
@@ -505,6 +541,13 @@ function DropdownSubmenu({
     disableTrigger: isDisabled,
     position: options.position ?? 'right-start',
     offset: -4,
+    flipOptions: {
+      boundary: document.body,
+      altAxis: false,
+      ...(options.position
+        ? {}
+        : {fallbackPlacements: ['bottom-start', 'left-start', 'top-start']}),
+    },
     preventOverflowOptions: {
       boundary: document.body,
       altAxis: true,
@@ -516,6 +559,11 @@ function DropdownSubmenu({
     triggerRef
   );
   const isFocused = state.selectionManager.focusedKey === node.key;
+  const maxHeight = minHeight(options.maxMenuHeight, overlayProps.style?.maxHeight);
+  const minimumHeight =
+    options.minMenuHeight === undefined
+      ? undefined
+      : minHeight(options.minMenuHeight, maxHeight);
 
   return (
     <Container as="li" display="contents" role="presentation">
@@ -545,25 +593,49 @@ function DropdownSubmenu({
           closeOnSelect={closeOnSelect}
           disableTextSelection={disableTextSelection}
           menuTitle={options.title}
+          emptyMessage={options.emptyMessage}
+          minMenuHeight={minimumHeight}
+          menuWidth={options.menuWidth}
           searchOptions={options.search}
           size={size}
           {...menuProps}
           items={items}
           autoFocus={false}
           overlayState={overlayState}
-          overlayPositionProps={overlayProps}
+          overlayPositionProps={{
+            ...overlayProps,
+            style: {
+              ...overlayProps.style,
+              maxHeight,
+            },
+          }}
         />
       )}
     </Container>
   );
 }
 
-const StyledOverlay = styled(Overlay)`
+const StyledOverlay = styled(Overlay, {
+  shouldForwardProp: prop =>
+    !['minMenuHeight', 'menuWidth', 'maxWidthProp'].includes(prop),
+})<{
+  maxWidthProp?: number | string;
+  menuWidth?: number | string;
+  minMenuHeight?: number | string;
+}>`
   display: flex;
   flex-direction: column;
+  max-height: inherit;
+  min-height: ${p => p.minMenuHeight && withUnits(p.minMenuHeight)};
+  width: ${p => p.menuWidth && withUnits(p.menuWidth)};
+  max-width: ${p =>
+    p.menuWidth && (p.maxWidthProp ? withUnits(p.maxWidthProp) : 'calc(100vw - 16px)')};
 `;
 
-const DropdownMenuListWrap = styled('ul')<{
+const withUnits = (value: string | number) =>
+  typeof value === 'number' ? `${value}px` : value;
+
+const DropdownMenuListWrap = styled(Stack)<{
   hasTitle: boolean;
   disableTextSelection?: boolean;
 }>`
@@ -572,6 +644,7 @@ const DropdownMenuListWrap = styled('ul')<{
   font-size: ${p => p.theme.font.size.md};
   overflow-x: hidden;
   overflow-y: auto;
+  min-height: 0;
 
   ${p =>
     p.disableTextSelection &&

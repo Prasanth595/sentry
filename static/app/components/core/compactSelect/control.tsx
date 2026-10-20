@@ -31,7 +31,7 @@ import type {
   SelectOptionOrSectionWithKey,
   SelectOptionWithKey,
 } from './types';
-import {getDisabledOptions, getHiddenOptions, getSearchConfig} from './utils';
+import {getDisabledOptions, getHiddenOptions, getSearchConfig, minHeight} from './utils';
 
 // autoFocus react attribute is sync called on render, this causes
 // layout thrashing and is bad for performance. This thin wrapper function
@@ -646,7 +646,8 @@ export const ClearButton = styled(Button)`
   margin: 0 -${p => p.theme.space.xs};
 `;
 
-const withUnits = (value: unknown) => (typeof value === 'string' ? value : `${value}px`);
+const withUnits = (value: string | number) =>
+  typeof value === 'number' ? `${value}px` : value;
 
 const StyledOverlay = styled(Overlay, {
   shouldForwardProp: prop => isPropValid(prop),
@@ -680,10 +681,7 @@ const StyledOverlay = styled(Overlay, {
       min-width: ${withUnits(p.minWidth)};
     `}
   max-width: ${p => (p.maxWidth ? `min(${withUnits(p.maxWidth)}, 100%)` : '100%')};
-  max-height: ${p =>
-    p.maxHeight
-      ? `min(${withUnits(p.maxHeight)}, ${withUnits(p.maxHeightProp)})`
-      : withUnits(p.maxHeightProp)};
+  max-height: ${p => minHeight(p.maxHeight, p.maxHeightProp)};
 `;
 
 const StyledPositionWrapper = styled(PositionWrapper, {
