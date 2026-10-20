@@ -1,0 +1,69 @@
+---
+title: OAuth Consent
+description: Application context and consent controls for branded OAuth flows.
+category: patterns
+source: sentry/views/authV2/oauth/consentForm
+---
+
+import {ApplicationSummary} from './applicationSummary';
+import {ConsentForm} from './consentForm';
+import {OAuthLayout} from './oauthLayout';
+import {OAuthFlowTransition} from './oauthFlowTransition';
+import * as Storybook from 'sentry/stories';
+
+The application summary stays visible through sign-in and consent. The flow hook owns preparation, account switching, decisions, and navigation. Consent controls select one organization for organization-scoped applications.
+
+<Storybook.Demo>
+  <OAuthLayout>
+    <ApplicationSummary
+      context={{
+        stage: 'context',
+        application: {
+          clientId: 'example-client',
+          name: 'Example Application',
+          homepageUrl: 'https://example.com',
+          privacyUrl: null,
+          termsUrl: null,
+          requiresOrgLevelAccess: true,
+        },
+        permissionGroups: [
+          {
+            resource: 'projects',
+            label: 'Projects',
+            scopes: ['project:read'],
+            actions: ['read'],
+            description: null,
+          },
+        ],
+        scopes: ['project:read'],
+        permissions: ['Read projects'],
+      }}
+    />
+    <OAuthFlowTransition step="consent">
+      <ConsentForm
+        application={{
+          clientId: 'example-client',
+          name: 'Example Application',
+          homepageUrl: 'https://example.com',
+          privacyUrl: null,
+          termsUrl: null,
+          requiresOrgLevelAccess: true,
+        }}
+        busy={false}
+        disabled={false}
+        requiresOrganization
+        organizations={[
+          {id: '1', name: 'Example Organization', slug: 'org-slug'},
+          {id: '2', name: 'Another Organization', slug: 'another-org'},
+        ]}
+        onDecision={() => {}}
+      />
+    </OAuthFlowTransition>
+  </OAuthLayout>
+</Storybook.Demo>
+
+The parent remounts consent controls when the account or prepared transaction changes. The last active eligible organization is preselected, falling back to the first available organization. Consent controls are disabled during account switching and decision submission.
+
+Permission rows share grid columns with a fixed header above the scrollable list. The backend provides resource-specific access descriptions for indicator tooltips and describes special capabilities in the Other column. An X marks unrequested access; cells are empty when an access level does not apply to the resource.
+
+Account switching retains the consent screen with its controls disabled through logout and authentication configuration loading. Once sign-in is ready, the account and consent section transitions together using the invitation flow motion. The application card stays visible throughout.
