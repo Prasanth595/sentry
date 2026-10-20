@@ -392,6 +392,7 @@ export type KnownSentryApiUrls =
   | '/organizations/$organizationIdOrSlug/seer/supergroups/$supergroupId/'
   | '/organizations/$organizationIdOrSlug/seer/supergroups/by-group/'
   | '/organizations/$organizationIdOrSlug/seer/workflows/'
+  | '/organizations/$organizationIdOrSlug/seer/workflows/configs/'
   | '/organizations/$organizationIdOrSlug/sent-first-event/'
   | '/organizations/$organizationIdOrSlug/sentry-app-components/'
   | '/organizations/$organizationIdOrSlug/sentry-app-installations/'
